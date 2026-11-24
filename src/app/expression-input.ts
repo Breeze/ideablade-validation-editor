@@ -32,15 +32,15 @@ const COMPLETION_TYPES: Record<Member['kind'], string> = {
 };
 
 const theme = EditorView.theme({
-  '&': { border: '1px solid var(--border)', borderRadius: '4px', background: 'white', fontSize: '12px' },
+  '&': { border: '1px solid var(--border)', borderRadius: '4px', background: 'white', fontSize: '13px' },
   '&.cm-focused': { outline: '2px solid var(--accent-soft)', borderColor: 'var(--accent)' },
   '.cm-content': { fontFamily: 'var(--mono)', padding: '4px 0', fontVariantLigatures: 'none' },
   '.cm-line': { padding: '0 6px' },
   '.cm-placeholder': { color: '#9aa5b1' },
-  '.cm-tooltip-autocomplete ul li': { fontFamily: 'var(--mono)', fontSize: '12px' },
+  '.cm-tooltip-autocomplete ul li': { fontFamily: 'var(--mono)', fontSize: '13px' },
   '.cm-completionDetail': { color: '#66727f', fontStyle: 'normal', marginLeft: '1em' },
   '.cm-tooltip-autocomplete ul li[aria-selected] .cm-completionDetail': { color: '#dbe7ff' },
-  '.cm-tooltip.cm-completionInfo': { maxWidth: '360px', fontSize: '12px', padding: '4px 8px' },
+  '.cm-tooltip.cm-completionInfo': { maxWidth: '360px', fontSize: '13px', padding: '4px 8px' },
 });
 
 /**
