@@ -169,3 +169,34 @@ export function lineOfPath(text: string, path: Path): number | undefined {
   }
   return line + 1;
 }
+
+/**
+ * Several metadata documents as one, merged the way the library merges several metadata maps: validator lists are
+ * concatenated, properties with the same name are merged, and scalar settings take the last value. For looking up
+ * models and properties across the open documents (checks, completion, the tester's sample).
+ */
+export function mergeDocs(docs: readonly MetadataDoc[]): MetadataDoc {
+  if (docs.length === 1) return docs[0];
+  const list = (value: unknown): Json[] => (Array.isArray(value) ? value : []);
+  const result: JsonObject = {};
+  for (const doc of docs) {
+    for (const [key, value] of Object.entries(doc)) {
+      if (!isPlainObject(value)) continue;
+      if (key === 'global') {
+        const previous = isPlainObject(result['global']) ? result['global'] : {};
+        result['global'] = { ...previous, validators: [...list(previous['validators']), ...list(value['validators'])] };
+        continue;
+      }
+      if (!isModelKey(key)) continue;
+      const previous = isPlainObject(result[key]) ? result[key] : {};
+      const properties: JsonObject = { ...(isPlainObject(previous['properties']) ? previous['properties'] : {}) };
+      for (const [name, property] of Object.entries(isPlainObject(value['properties']) ? value['properties'] : {})) {
+        if (!isPlainObject(property)) continue;
+        const before = isPlainObject(properties[name]) ? properties[name] : {};
+        properties[name] = { ...before, ...property, validators: [...list(before['validators']), ...list(property['validators'])] };
+      }
+      result[key] = { ...previous, ...value, validators: [...list(previous['validators']), ...list(value['validators'])], properties };
+    }
+  }
+  return result;
+}

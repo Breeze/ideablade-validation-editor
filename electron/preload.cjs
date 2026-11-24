@@ -1,11 +1,14 @@
-// The renderer's only access to the system: open/save JSON files and a few window functions.
+// The renderer's only access to the system: opening and saving files, reading TypeScript, and a few window functions.
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('editorHost', {
   openFile: (title) => ipcRenderer.invoke('file:open', title),
   readFile: (path) => ipcRenderer.invoke('file:read', path),
   saveFile: (path, text) => ipcRenderer.invoke('file:save', path, text),
-  saveFileAs: (defaultPath, text) => ipcRenderer.invoke('file:saveAs', defaultPath, text),
+  chooseSavePath: (defaultPath) => ipcRenderer.invoke('file:choose-save-path', defaultPath),
+  readTsMetadata: (text, fileName) => ipcRenderer.invoke('ts:read-metadata', text, fileName),
+  writeTsMetadata: (text, fileName, name, json) => ipcRenderer.invoke('ts:write-metadata', text, fileName, name, json),
+  newTsMetadata: (name, json) => ipcRenderer.invoke('ts:new-metadata', name, json),
   confirm: (message, detail, buttons) => ipcRenderer.invoke('app:confirm', message, detail, buttons),
   openSources: () => ipcRenderer.invoke('file:open-source'),
   watchSources: (paths) => ipcRenderer.invoke('sources:watch', paths),

@@ -4,7 +4,8 @@ import breezeMetadata from '../../samples/temphire.breeze-metadata.json';
 import tempHireMetadata from '../../samples/temphire.validation.metadata.json';
 import { checkDocument, checkRegexFlags } from './check';
 import { complete, typeFromText } from './completion';
-import { type MetadataDoc, lineOfPath, setIn, stringify } from './doc';
+import { newCsMetadataFile, pascalCaseFromFile, readCsMetadata, writeCsMetadata } from './cs-metadata';
+import { type MetadataDoc, lineOfPath, mergeDocs, setIn, stringify } from './doc';
 import { buildCatalog, camelCase, parseBreeze, parseCSharp, parseCSharpApp, parseSource } from './sources';
 import { runTest } from './tester';
 
@@ -110,15 +111,15 @@ describe('checks', () => {
 
 describe('tester', () => {
   it('validates a sample with the real service', () => {
-    const result = runTest(doc, 'Address', '{ "zipcode": "ABC", "city": "x" }', '', [], catalog);
+    const result = runTest([doc], 'Address', '{ "zipcode": "ABC", "city": "x" }', '', [], catalog);
     expect(result.failure).toBeUndefined();
     expect(result.errors!.map((e) => e.key)).toContain('zipCode_zipcode');
   });
 
   it('runs store() expressions against the given store', () => {
     const sample = '{ "id": 1 }';
-    const withoutAddress = runTest(doc, 'StaffingResource', sample, '{}', [], catalog);
-    const withAddress = runTest(doc, 'StaffingResource', sample, '{ "Address": [{ "staffingResourceId": 1 }] }', [], catalog);
+    const withoutAddress = runTest([doc], 'StaffingResource', sample, '{}', [], catalog);
+    const withAddress = runTest([doc], 'StaffingResource', sample, '{ "Address": [{ "staffingResourceId": 1 }] }', [], catalog);
     expect(withoutAddress.errors!.map((e) => e.id)).toContain('ADDRESS_REQUIRED');
     expect(withAddress.errors!.map((e) => e.id)).not.toContain('ADDRESS_REQUIRED');
   });
@@ -219,5 +220,82 @@ describe("the app's validators and functions", () => {
     expect(checkRegexFlags('gi').map((p) => p.severity)).toEqual(['warning']);
     const changed = setIn(doc, ['Address', 'properties', 'city', 'validators'], [{ name: 'pattern', context: { expression: '/^[a-z]+$/q' } }]) as MetadataDoc;
     expect(errors(changed)[0]).toMatchObject({ path: ['Address', 'properties', 'city', 'validators', 0, 'context', 'expression'] });
+  });
+});
+
+describe('several metadata documents', () => {
+  // TempHire's client metadata: ResourceName's names follow StaffingResource's, which the server metadata and Breeze know.
+  const client: MetadataDoc = { ResourceName: { properties: { firstName: { from: 'StaffingResource' }, nickname: { from: 'StaffingResource' } } } };
+
+  it("resolves 'from' and properties across documents", () => {
+    const view = mergeDocs([doc, client]);
+    expect(Object.keys(view)).toEqual(expect.arrayContaining(['StaffingResource', 'ResourceName']));
+    // nickname is in neither the metadata nor Breeze: an error, found with the server metadata open as well.
+    const issues = checkDocument(client, { customValidators: [], catalog, workspace: [doc, client] }).filter((i) => i.severity === 'error');
+    expect(issues.map((i) => i.path)).toEqual([['ResourceName', 'properties', 'nickname', 'from']]);
+  });
+
+  it('merges like the library: rules are added together', () => {
+    const extra: MetadataDoc = { Address: { properties: { city: { validators: ['email'] } } } };
+    const merged = mergeDocs([doc, extra]) as { Address: { properties: { city: { validators: unknown[] } } } };
+    expect(merged.Address.properties.city.validators).toContain('email');
+    // A rule in another document that repeats a key: the library's duplicate key check sees both.
+    const clash: MetadataDoc = { StaffingResource: { validators: [{ name: 'expression', id: 'ADDRESS_REQUIRED', context: { expression: 'true' } }] } };
+    const issues = checkDocument(clash, { customValidators: [], catalog, workspace: [doc, clash] }).filter((i) => i.severity === 'error');
+    expect(issues.map((i) => i.message)).toEqual([expect.stringContaining("'expression_ADDRESS_REQUIRED'")]);
+  });
+
+  it('tests a model with the rules of every document', () => {
+    const result = runTest([doc, { Address: { properties: { city: { required: true } } } }], 'Address', '{ "city": "" }', '', [], catalog);
+    expect(result.errors!.map((e) => e.key)).toContain('required_city');
+  });
+});
+
+describe('metadata in C#', () => {
+  const file = [
+    'namespace TempHire.Server.Validation;',
+    '',
+    'public static class ClientValidationMetadata',
+    '{',
+    '    // Served to the client with the server metadata.',
+    '    public const string Json = """',
+    '        {',
+    '          // the name editor',
+    '          "ResourceName": { "properties": { "firstName": { "from": "StaffingResource" }, } }',
+    '        }',
+    '        """;',
+    '',
+    '    public const string NotMetadata = """',
+    '        { "hello": 1 }',
+    '        """;',
+    '    public static string Other = "{ \\"x\\": {} }";',
+    '}',
+    '',
+  ].join('\r\n');
+
+  it('finds the metadata strings, with comments and trailing commas as .NET allows', () => {
+    expect(readCsMetadata(file)).toEqual([
+      { name: 'Json', json: { ResourceName: { properties: { firstName: { from: 'StaffingResource' } } } }, hasComments: true },
+    ]);
+  });
+
+  it('rewrites only the string, keeping the indentation and line endings', () => {
+    const json = { ResourceName: { properties: { firstName: { from: 'StaffingResource' }, lastName: { from: 'StaffingResource' } } } };
+    const written = writeCsMetadata(file, 'Json', json);
+    expect(written.startsWith(file.slice(0, file.indexOf('"""')))).toBe(true);
+    expect(written.endsWith(file.slice(file.indexOf('\r\n\r\n    public const string NotMetadata')))).toBe(true);
+    expect(written).toContain('Json = """\r\n        {\r\n          "ResourceName": {');
+    expect(written).toContain('        }\r\n        """;');
+    expect(written).not.toContain('\n\n        {');
+    expect(readCsMetadata(written)).toEqual([{ name: 'Json', json, hasComments: false }]);
+  });
+
+  it('writes a new file, and reads verbatim strings', () => {
+    expect(pascalCaseFromFile('C:/x/client-validation.metadata.cs')).toBe('ClientValidationMetadata');
+    const created = newCsMetadataFile('ClientValidationMetadata', { A: {} });
+    expect(readCsMetadata(created)).toEqual([{ name: 'Json', json: { A: {} }, hasComments: false }]);
+    const verbatim = 'var json = @"{ ""A"": { ""properties"": {} } }";';
+    expect(readCsMetadata(verbatim)[0]).toMatchObject({ name: 'json', json: { A: { properties: {} } } });
+    expect(readCsMetadata(writeCsMetadata(verbatim, 'json', { B: {} }))[0].json).toEqual({ B: {} });
   });
 });

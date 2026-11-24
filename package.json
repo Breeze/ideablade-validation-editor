@@ -16,7 +16,7 @@
     "build": "ng build",
     "start": "npm run build && electron .",
     "dev": "node scripts/build-schema-validator.mjs && node scripts/dev.mjs",
-    "test": "node scripts/build-schema-validator.mjs && ng test --watch=false",
+    "test": "node scripts/build-schema-validator.mjs && ng test --watch=false && node --test electron/",
     "dist": "npm run build && electron-builder --win nsis",
     "dist:dir": "npm run build && electron-builder --win dir"
   },

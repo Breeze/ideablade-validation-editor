@@ -3,6 +3,7 @@ const { app, BrowserWindow, dialog, ipcMain, Menu } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { withTypeScriptModels } = require('./typescript-models.cjs');
+const { readTsMetadata, writeTsMetadata, newTsMetadataFile } = require('./typescript-metadata.cjs');
 
 let win;
 let forceClose = false;
@@ -35,16 +36,19 @@ function createWindow() {
   });
 }
 
-const jsonFilters = [
+// Validation metadata lives in JSON files, or in TypeScript and C# files (see typescript-metadata.cjs and
+// src/lib/cs-metadata.ts).
+const metadataFilters = [
+  { name: 'Validation metadata', extensions: ['json', 'ts', 'cs'] },
   { name: 'JSON', extensions: ['json'] },
-  { name: 'All files', extensions: ['*'] },
+  { name: 'TypeScript', extensions: ['ts'] },
+  { name: 'C#', extensions: ['cs'] },
 ];
 
 ipcMain.handle('file:open', async (_e, title) => {
-  const result = await dialog.showOpenDialog(win, { title, properties: ['openFile'], filters: jsonFilters });
-  if (result.canceled || result.filePaths.length === 0) return undefined;
-  const filePath = result.filePaths[0];
-  return { path: filePath, text: await fs.readFile(filePath, 'utf8') };
+  const result = await dialog.showOpenDialog(win, { title, properties: ['openFile', 'multiSelections'], filters: metadataFilters });
+  if (result.canceled) return [];
+  return Promise.all(result.filePaths.map(async (p) => ({ path: p, text: await fs.readFile(p, 'utf8') })));
 });
 
 ipcMain.handle('file:read', async (_e, filePath) => withTypeScriptModels({ path: filePath, text: await fs.readFile(filePath, 'utf8') }));
@@ -54,12 +58,19 @@ ipcMain.handle('file:save', async (_e, filePath, text) => {
   return filePath;
 });
 
-ipcMain.handle('file:saveAs', async (_e, defaultPath, text) => {
-  const result = await dialog.showSaveDialog(win, { defaultPath, filters: jsonFilters });
-  if (result.canceled || !result.filePath) return undefined;
-  await fs.writeFile(result.filePath, text, 'utf8');
-  return result.filePath;
+/** Asks where to save; the format follows the extension chosen. The renderer writes the file. */
+ipcMain.handle('file:choose-save-path', async (_e, defaultPath) => {
+  const filters = [...metadataFilters.slice(1)];
+  const ext = path.extname(defaultPath ?? '').slice(1).toLowerCase();
+  filters.sort((a, b) => (b.extensions[0] === ext) - (a.extensions[0] === ext)); // the current format first
+  const result = await dialog.showSaveDialog(win, { defaultPath, filters });
+  return result.canceled ? undefined : result.filePath;
 });
+
+// TypeScript metadata needs the TypeScript compiler, so the renderer asks for it here. These work on text only.
+ipcMain.handle('ts:read-metadata', (_e, text, fileName) => readTsMetadata(text, fileName));
+ipcMain.handle('ts:write-metadata', (_e, text, fileName, name, json) => writeTsMetadata(text, fileName, name, json));
+ipcMain.handle('ts:new-metadata', (_e, name, json) => newTsMetadataFile(name, json));
 
 ipcMain.handle('app:confirm', async (_e, message, detail, buttons) => {
   const result = await dialog.showMessageBox(win, { type: 'question', message, detail, buttons, defaultId: 0, cancelId: buttons.length - 1 });
@@ -135,14 +146,14 @@ ipcMain.handle('file:open-source', async () => {
 ipcMain.on('app:set-title', (_e, title) => win.setTitle(title));
 
 // A file passed on the command line (e.g. through the "Open with" file association).
-// Command line: a metadata file to open, and model sources to load with it:
-//   electron . validation.metadata.json --source=breeze-metadata.json --source=src/app/view-models.ts
+// Command line: metadata files to open (JSON, TS or C#), and sources to load with them:
+//   electron . validation.metadata.json client-validation-metadata.ts --source=breeze-metadata.json --source=src/app/view-models.ts
 // Relative paths are resolved against the working directory.
 ipcMain.handle('app:startup-args', () => {
   const args = process.argv.slice(app.isPackaged ? 1 : 2);
-  const file = args.find((a) => !a.startsWith('-') && a.toLowerCase().endsWith('.json'));
+  const files = args.filter((a) => !a.startsWith('-') && /\.(json|ts|cs)$/i.test(a)).map((a) => path.resolve(a));
   const sources = args.filter((a) => a.startsWith('--source=')).map((a) => path.resolve(a.slice('--source='.length)));
-  return { file: file ? path.resolve(file) : undefined, sources };
+  return { files, sources };
 });
 function sendMenu(command) {
   return () => win.webContents.send('menu', command);
@@ -156,6 +167,8 @@ const menu = Menu.buildFromTemplate([
       { label: '&Open…', accelerator: 'CmdOrCtrl+O', click: sendMenu('open') },
       { label: '&Save', accelerator: 'CmdOrCtrl+S', click: sendMenu('save') },
       { label: 'Save &As…', accelerator: 'CmdOrCtrl+Shift+S', click: sendMenu('saveAs') },
+      { label: 'Save A&ll', accelerator: 'CmdOrCtrl+Alt+S', click: sendMenu('saveAll') },
+      { label: '&Close document', accelerator: 'CmdOrCtrl+W', click: sendMenu('close') },
       { type: 'separator' },
       { label: 'Add &source (Breeze, TS, C#)…', accelerator: 'CmdOrCtrl+M', click: sendMenu('addSource') },
       { label: '&Reload model sources', accelerator: 'F5', click: sendMenu('reloadSources') },

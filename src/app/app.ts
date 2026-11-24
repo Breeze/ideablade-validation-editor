@@ -1,13 +1,18 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 
+import { modelKeys } from '../lib/doc';
 import { type ModelSource, fileName } from '../lib/sources';
-import { EditorStore } from './editor-store';
+import { EditorStore, FORMAT_LABELS, type MetadataDocument } from './editor-store';
 import { host } from './host';
 import { uniqueId } from './inline-issues';
 import { ModelEditor } from './model-editor';
 import { DocumentEditor, IssuesPanel, JsonView, TesterPanel } from './panels';
 
 type Pane = 'json' | 'issues' | 'test';
+interface Counts {
+  errors: number;
+  warnings: number;
+}
 
 @Component({
   selector: 'app-root',
@@ -16,41 +21,61 @@ type Pane = 'json' | 'issues' | 'test';
   template: `
     <header class="toolbar">
       <button (click)="store.newFile()" title="Ctrl+N">New</button>
-      <button (click)="store.open()" title="Ctrl+O">Open…</button>
-      <button (click)="store.save()" title="Ctrl+S" [class.primary]="store.dirty()">Save</button>
-      <button (click)="store.saveAs()" title="Ctrl+Shift+S">Save as…</button>
+      <button (click)="store.open()" title="Ctrl+O: JSON, TypeScript or C# files">Open…</button>
+      <button (click)="store.save()" title="Ctrl+S" [disabled]="!store.active()" [class.primary]="store.active()?.dirty()">Save</button>
+      <button (click)="store.saveAs()" title="Ctrl+Shift+S: as JSON, TypeScript or C#" [disabled]="!store.active()">Save as…</button>
+      <button (click)="store.saveAll()" title="Ctrl+Alt+S" [disabled]="!store.dirty()">Save all</button>
       <span class="sep"></span>
       <button (click)="store.addSources()" title="Ctrl+M">Add source…</button>
       <button (click)="store.reloadSources()" [disabled]="!store.sources().length" title="F5">Reload sources</button>
       <span class="spacer"></span>
-      <span class="file" [title]="store.filePath() ?? ''">{{ store.dirty() ? '● ' : '' }}{{ store.filePath() ?? 'Untitled' }}</span>
+      <span class="file" [title]="store.filePath() ?? ''">{{ store.filePath() ?? (store.active() ? 'Not saved yet' : '') }}</span>
     </header>
 
     <div class="layout">
       <nav class="sidebar">
-        <button class="nav-item" [class.selected]="store.selection().kind === 'document'" (click)="store.select({ kind: 'document' })">
-          Document <small>$schema, $comment, global rules</small>
-        </button>
-
-        <div class="nav-title">Model types <span class="count">{{ store.modelTypes().length }}</span></div>
-        @for (m of store.modelTypes(); track m) {
-          <button class="nav-item" [class.selected]="isSelected(m)" (click)="store.select({ kind: 'model', name: m })">
-            <span>{{ m }}</span>
-            @if (extendsOf(m); as parent) { <small>extends {{ parent }}</small> }
-            <span class="spacer"></span>
-            @if (counts().get(m); as c) {
-              @if (c.errors) { <span class="badge error-badge">{{ c.errors }}</span> }
-              @if (c.warnings) { <span class="badge warning-badge">{{ c.warnings }}</span> }
+        <div class="nav-title">Metadata <span class="count">{{ store.documents().length }}</span></div>
+        @for (d of store.documents(); track d.id) {
+          <div class="doc" [class.active]="d === store.active()">
+            <div class="doc-head" [title]="d.path() ?? 'Not saved yet'" (click)="store.select({ docId: d.id, kind: 'document' })">
+              <span class="badge kind">{{ formatLabels[d.format()] }}</span>
+              <span class="doc-name">{{ d.label() }}</span>
+              @if (d.dirty()) { <span class="dirty" title="Unsaved changes">●</span> }
+              @if (d.readOnly()) { <span class="badge muted" [title]="d.readOnly()!">read-only</span> }
+              <span class="spacer"></span>
+              @if (docCounts().get(d.id); as c) {
+                @if (c.errors) { <span class="badge error-badge">{{ c.errors }}</span> }
+              }
+              <button class="icon" title="Close (Ctrl+W)" (click)="$event.stopPropagation(); store.closeDocument(d.id)">✕</button>
+            </div>
+            <button class="nav-item sub" [class.selected]="isSelected(d)" (click)="store.select({ docId: d.id, kind: 'document' })">
+              <small>{{ d.format() === 'json' ? '$schema, $comment, global rules' : '$comment, global rules' }}</small>
+            </button>
+            @for (m of modelsOf(d); track m) {
+              <button class="nav-item sub" [class.selected]="isSelected(d, m)" (click)="store.select({ docId: d.id, kind: 'model', name: m })">
+                <span>{{ m }}</span>
+                @if (extendsOf(d, m); as parent) { <small>extends {{ parent }}</small> }
+                <span class="spacer"></span>
+                @if (modelCounts().get(d.id + '/' + m); as c) {
+                  @if (c.errors) { <span class="badge error-badge">{{ c.errors }}</span> }
+                  @if (c.warnings) { <span class="badge warning-badge">{{ c.warnings }}</span> }
+                }
+              </button>
             }
-          </button>
+          </div>
+        } @empty {
+          <div class="hint">No metadata open. Open JSON files, or TypeScript or C# files that hold metadata, or start a new one.</div>
         }
-        <div class="add-row">
-          <input [attr.list]="typesListId" placeholder="model type…" [value]="newModel()" (input)="newModel.set($any($event.target).value)" (keydown.enter)="addModel()" />
-          <datalist [id]="typesListId">
-            @for (t of missingTypes(); track t) { <option [value]="t"></option> }
-          </datalist>
-          <button (click)="addModel()" [disabled]="!newModel().trim()">Add</button>
-        </div>
+        @if (store.active(); as active) {
+          <div class="add-row">
+            <input [attr.list]="typesListId" [placeholder]="'model type, in ' + active.fileLabel()" [value]="newModel()"
+              [disabled]="!!active.readOnly()" (input)="newModel.set($any($event.target).value)" (keydown.enter)="addModel()" />
+            <datalist [id]="typesListId">
+              @for (t of missingTypes(); track t) { <option [value]="t"></option> }
+            </datalist>
+            <button (click)="addModel()" [disabled]="!newModel().trim()">Add</button>
+          </div>
+        }
 
         <div class="nav-title">Sources <span class="count">{{ store.sources().length }}</span></div>
         @for (s of store.sources(); track s.path) {
@@ -79,11 +104,16 @@ type Pane = 'json' | 'issues' | 'test';
       </nav>
 
       <main class="main">
-        @switch (store.selection().kind) {
-          @case ('document') { <app-document-editor /> }
-          @case ('model') {
-            @if (selectedModel(); as name) { <app-model-editor [name]="name" /> }
-          }
+        @if (!store.active()) {
+          <div class="empty-state">
+            <p>Open validation metadata: JSON files, TypeScript files with a <code>ModelValidationMetadataMap</code>, or C# files with the metadata as a JSON string. Open several to edit them side by side; the checks see them together, as the library merges them.</p>
+            <button class="primary" (click)="store.open()">Open…</button> <button (click)="store.newFile()">New</button>
+          </div>
+        } @else if (selectedModel(); as name) {
+          @if (store.readOnly(); as reason) { <div class="banner">Read-only: {{ reason }}</div> }
+          <app-model-editor [name]="name" />
+        } @else {
+          <app-document-editor />
         }
       </main>
 
@@ -110,7 +140,8 @@ type Pane = 'json' | 'issues' | 'test';
     <footer class="statusbar">
       <span>{{ store.status() }}</span>
       <span class="spacer"></span>
-      <span>{{ store.modelTypes().length }} model types · {{ store.catalog().size }} known from sources ·
+      <span>{{ store.documents().length }} metadata {{ store.documents().length === 1 ? 'map' : 'maps' }} · {{ store.metadataTypes().length }} model types ·
+        {{ store.catalog().size }} known from sources ·
         @if (store.errorCount()) { <span class="error-text">{{ store.errorCount() }} errors</span> } @else { no errors }</span>
     </footer>
   `,
@@ -121,25 +152,17 @@ export class App {
   readonly newModel = signal('');
   readonly typesListId = uniqueId('model-types');
   readonly fileName = fileName;
+  readonly formatLabels = FORMAT_LABELS;
 
   readonly selectedModel = computed(() => {
     const s = this.store.selection();
-    return s.kind === 'model' && this.store.modelTypes().includes(s.name) ? s.name : undefined;
+    return s?.kind === 'model' && s.docId === this.store.active()?.id && this.store.modelTypes().includes(s.name) ? s.name : undefined;
   });
-  readonly missingTypes = computed(() => [...this.store.catalog().keys()].filter((t) => !this.store.modelTypes().includes(t)));
-  readonly warningCount = computed(() => this.store.issues().filter((i) => i.severity === 'warning').length);
-  readonly counts = computed(() => {
-    const counts = new Map<string, { errors: number; warnings: number }>();
-    for (const issue of this.store.issues()) {
-      const key = issue.path[0];
-      if (typeof key !== 'string') continue;
-      const c = counts.get(key) ?? { errors: 0, warnings: 0 };
-      if (issue.severity === 'error') c.errors++;
-      if (issue.severity === 'warning') c.warnings++;
-      counts.set(key, c);
-    }
-    return counts;
-  });
+  /** Model types the sources know that the selected document doesn't have yet. */
+  readonly missingTypes = computed(() => this.store.allModelTypes().filter((t) => !this.store.modelTypes().includes(t)));
+  readonly warningCount = computed(() => this.store.allIssues().filter((i) => i.severity === 'warning').length);
+  readonly modelCounts = computed(() => this.count((i) => (typeof i.path[0] === 'string' ? `${i.docId}/${i.path[0]}` : undefined)));
+  readonly docCounts = computed(() => this.count((i) => i.docId));
 
   constructor() {
     effect(() => host.setTitle(this.store.title()));
@@ -154,6 +177,8 @@ export class App {
         case 'open': return void this.store.open();
         case 'save': return void this.store.save();
         case 'saveAs': return void this.store.saveAs();
+        case 'saveAll': return void this.store.saveAll();
+        case 'close': return void this.store.closeDocument();
         case 'addSource': return void this.store.addSources();
         case 'reloadSources': return void this.store.reloadSources();
       }
@@ -162,18 +187,37 @@ export class App {
       if (await this.store.confirmDiscard()) host.close();
     });
     void host.startupArgs().then(async (args) => {
-      if (args.file) await this.store.openPath(args.file);
+      for (const file of args.files) await this.store.openPath(file);
+      if (!this.store.documents().length) this.store.newFile();
       if (args.sources.length) await this.store.loadSourcePaths(args.sources);
     });
   }
 
-  isSelected(name: string): boolean {
-    const s = this.store.selection();
-    return s.kind === 'model' && s.name === name;
+  private count(keyOf: (i: { docId: string; path: (string | number)[] }) => string | undefined): Map<string, Counts> {
+    const counts = new Map<string, Counts>();
+    for (const issue of this.store.allIssues()) {
+      const key = keyOf(issue);
+      if (!key) continue;
+      const c = counts.get(key) ?? { errors: 0, warnings: 0 };
+      if (issue.severity === 'error') c.errors++;
+      if (issue.severity === 'warning') c.warnings++;
+      counts.set(key, c);
+    }
+    return counts;
   }
 
-  extendsOf(name: string): string | undefined {
-    const entry = this.store.doc()[name] as { extends?: string } | undefined;
+  modelsOf(d: MetadataDocument): string[] {
+    return modelKeys(d.doc());
+  }
+
+  isSelected(d: MetadataDocument, model?: string): boolean {
+    const s = this.store.selection();
+    if (!s || s.docId !== d.id || d !== this.store.active()) return false;
+    return model === undefined ? s.kind === 'document' : s.kind === 'model' && s.name === model;
+  }
+
+  extendsOf(d: MetadataDocument, name: string): string | undefined {
+    const entry = d.doc()[name] as { extends?: string } | undefined;
     return typeof entry?.extends === 'string' ? entry.extends : undefined;
   }
 

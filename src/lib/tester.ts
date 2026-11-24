@@ -19,7 +19,7 @@ export interface TestResult {
 }
 
 export function runTest(
-  doc: MetadataDoc,
+  docs: readonly MetadataDoc[],
   modelType: string,
   sampleText: string,
   storeText: string,
@@ -40,7 +40,7 @@ export function runTest(
   }
   try {
     const service = createValidationService({
-      metadata: doc as never,
+      metadata: docs as never,
       validators: stubValidators(customValidators),
       ruleSources: [catalogRuleSource(catalog)],
       onDuplicateErrorKey: () => {},

@@ -1,74 +1,98 @@
 import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
 
-import { type Issue } from '../lib/check';
 import { DEFAULT_SCHEMA_URL, type Json, lineOfPath } from '../lib/doc';
 import { type TestResult, runTest, sampleFor } from '../lib/tester';
 import { schemaVersion } from '../generated/schema-validator';
-import { EditorStore } from './editor-store';
+import { type DocIssue, EditorStore } from './editor-store';
 import { InlineIssues, commentText, commentValue } from './inline-issues';
 import { RuleList } from './rule-list';
 
-/** The document's own settings: `$schema`, `$comment` and the global rules. */
+/** Where and how a document is saved: a JSON file, or a map in a TS or C# file. */
+function describeDocument(format: string, path: string | undefined, name: string | undefined): string {
+  if (!path) return 'Not saved yet. Save as… writes it as JSON, TypeScript or C#, by the extension you choose.';
+  if (format === 'ts') return `The ModelValidationMetadataMap '${name}' in ${path}. Saving rewrites just that object; the rest of the file stays.`;
+  if (format === 'cs') return `The JSON string '${name}' in ${path}, for AddMetadataJson. Saving rewrites just that string; the rest of the file stays.`;
+  return path;
+}
+
+/** The document's own settings: `$schema` (JSON files), `$comment` and the global rules. */
 @Component({
   selector: 'app-document-editor',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [InlineIssues, RuleList],
   template: `
-    <h2>Document</h2>
-    <section>
-      <label>$schema <small>(for editors; the loaders ignore it)</small>
-        <input class="code" [value]="schema()" (input)="set('$schema', $any($event.target).value || undefined)" />
-      </label>
-      <div class="hint">Checked here against the schema of ideablade-validation {{ schemaVersion }}.
-        @if (!schema()) { <button class="link" (click)="set('$schema', defaultSchema)">Add the schema URL</button> }
-      </div>
-      <label>$comment <small>(one paragraph per line)</small>
-        <textarea class="comment" rows="6" [value]="comment()" (change)="set('$comment', commentValue($any($event.target).value))"></textarea>
-      </label>
-      <app-inline-issues [path]="['$comment']" />
-    </section>
-    <section>
-      <div class="section-title">Global rules <small>(model-level rules for every model type, such as breeze)</small></div>
-      <app-rule-list [path]="['global', 'validators']" />
-      <app-inline-issues [path]="['global']" [exact]="true" />
-    </section>
+    @if (store.active(); as d) {
+      <h2>{{ d.label() }}</h2>
+      <div class="hint">{{ where() }}</div>
+      @if (d.readOnly(); as reason) { <div class="banner">Read-only: {{ reason }}</div> }
+      @if (d.hasComments()) { <div class="banner warning">This object has comments inside it. Saving rewrites the object, so they would be lost (you'll be asked first). Use $comment for notes that should stay.</div> }
+      <section>
+        @if (d.format() === 'json') {
+          <label>$schema <small>(for editors; the loaders ignore it)</small>
+            <input class="code" [value]="schema()" (input)="set('$schema', $any($event.target).value || undefined)" />
+          </label>
+          <div class="hint">Checked here against the schema of ideablade-validation {{ schemaVersion }}.
+            @if (!schema()) { <button class="link" (click)="set('$schema', defaultSchema)">Add the schema URL</button> }
+          </div>
+        }
+        <label>$comment <small>(one paragraph per line)</small>
+          <textarea class="comment" rows="6" [value]="comment()" (change)="set('$comment', commentValue($any($event.target).value))"></textarea>
+        </label>
+        <app-inline-issues [path]="['$comment']" />
+      </section>
+      <section>
+        <div class="section-title">Global rules <small>(model-level rules for every model type, such as breeze)</small></div>
+        <app-rule-list [path]="['global', 'validators']" />
+        <app-inline-issues [path]="['global']" [exact]="true" />
+      </section>
+      <app-inline-issues [path]="[]" [exact]="true" />
+    }
   `,
 })
 export class DocumentEditor {
-  private readonly store = inject(EditorStore);
+  readonly store = inject(EditorStore);
   readonly schemaVersion = schemaVersion;
   readonly defaultSchema = DEFAULT_SCHEMA_URL;
   readonly commentValue = commentValue;
   readonly schema = computed(() => (typeof this.store.doc()['$schema'] === 'string' ? (this.store.doc()['$schema'] as string) : ''));
   readonly comment = computed(() => commentText(this.store.doc()['$comment']));
+  readonly where = computed(() => {
+    const d = this.store.active();
+    return d ? describeDocument(d.format(), d.path(), d.name()) : '';
+  });
 
   set(key: string, value: Json | undefined): void {
     this.store.update([key], value);
   }
 }
 
-/** The raw JSON, kept in step with the forms in both directions. */
+/** The selected document's JSON, kept in step with the forms in both directions. */
 @Component({
   selector: 'app-json-view',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <textarea #area class="json" spellcheck="false" [value]="text()" (input)="store.setJsonText($any($event.target).value)"></textarea>
-    @if (store.invalidText(); as invalid) {
-      <div class="json-error">Not applied, the JSON doesn't parse: {{ invalid.error }}</div>
+    @if (store.active(); as d) {
+      @if (d.format() !== 'json') {
+        <div class="json-note">{{ d.label() }} as JSON. It's saved as {{ d.format() === 'ts' ? 'a TypeScript object' : 'a C# JSON string' }} in {{ d.fileLabel() }}.</div>
+      }
+      <textarea #area class="json" spellcheck="false" [readOnly]="!!d.readOnly()" [value]="text()" (input)="store.setJsonText($any($event.target).value)"></textarea>
+      @if (store.invalidText(); as invalid) {
+        <div class="json-error">Not applied, the JSON doesn't parse: {{ invalid.error }}</div>
+      }
     }
   `,
 })
 export class JsonView {
   readonly store = inject(EditorStore);
-  private readonly area = viewChild.required<ElementRef<HTMLTextAreaElement>>('area');
+  private readonly area = viewChild<ElementRef<HTMLTextAreaElement>>('area');
   readonly text = computed(() => this.store.invalidText()?.text ?? this.store.jsonText());
 
   constructor() {
     // Scroll to (and select the line of) what the clicked issue is about.
     effect(() => {
       const path = this.store.focusPath();
-      if (!path) return;
-      const area = this.area().nativeElement;
+      const area = this.area()?.nativeElement;
+      if (!path || !area) return;
       const text = untracked(this.text); // only a new focus path scrolls, not every edit
       const line = lineOfPath(text, path) ?? 1;
       const lines = text.split('\n');
@@ -80,17 +104,21 @@ export class JsonView {
   }
 }
 
+/** The issues of every open document, grouped by document. */
 @Component({
   selector: 'app-issues-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @for (issue of store.issues(); track $index) {
-      <button class="issue" [class]="issue.severity" (click)="store.focusIssue(issue)">
-        <span class="sev">{{ icon(issue) }}</span>
-        <span class="where">{{ where(issue) }}</span>
-        <span class="msg">{{ issue.message }}</span>
-        <span class="origin">{{ issue.origin }}</span>
-      </button>
+    @for (group of groups(); track group.id) {
+      @if (groups().length > 1) { <div class="issue-group">{{ group.label }}</div> }
+      @for (issue of group.issues; track $index) {
+        <button class="issue" [class]="issue.severity" (click)="store.focusIssue(issue)">
+          <span class="sev">{{ icon(issue) }}</span>
+          <span class="where">{{ where(issue) }}</span>
+          <span class="msg">{{ issue.message }}</span>
+          <span class="origin">{{ issue.origin }}</span>
+        </button>
+      }
     } @empty {
       <div class="empty ok">No issues: the schema and the library accept this metadata.</div>
     }
@@ -98,23 +126,29 @@ export class JsonView {
 })
 export class IssuesPanel {
   readonly store = inject(EditorStore);
-  icon(issue: Issue): string {
+  readonly groups = computed(() =>
+    this.store
+      .documents()
+      .map((d) => ({ id: d.id, label: d.label(), issues: this.store.allIssues().filter((i) => i.docId === d.id) }))
+      .filter((g) => g.issues.length > 0),
+  );
+  icon(issue: DocIssue): string {
     return issue.severity === 'error' ? '✕' : issue.severity === 'warning' ? '!' : 'i';
   }
-  where(issue: Issue): string {
+  where(issue: DocIssue): string {
     return issue.path.map((p) => (typeof p === 'number' ? `[${p}]` : p)).join(' › ') || '(document)';
   }
 }
 
-/** "Try it": validate a sample object with the library and the metadata as it is now. */
+/** "Try it": validate a sample object with the library and all open metadata as it is now. */
 @Component({
   selector: 'app-tester-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="tester">
-      <label>Model type
+      <label>Model type <small>(with the rules of every open document, merged)</small>
         <select (change)="modelType.set($any($event.target).value)">
-          @for (t of store.modelTypes(); track t) { <option [value]="t" [selected]="t === modelType()">{{ t }}</option> }
+          @for (t of store.metadataTypes(); track t) { <option [value]="t" [selected]="t === modelType()">{{ t }}</option> }
         </select>
       </label>
       <label>Sample object <button class="link" (click)="fillSample()">fill from the model</button>
@@ -127,7 +161,7 @@ export class IssuesPanel {
         <button class="primary" (click)="run()">Validate</button>
         <label class="check"><input type="checkbox" [checked]="auto()" (change)="auto.set($any($event.target).checked)" /> re-run on every change</label>
       </div>
-      <div class="hint">Validators the editor doesn't have (breeze, custom ones) always pass here; async validators are not run.</div>
+      <div class="hint">Validators the editor doesn't have (breeze, the app's own) always pass here; async validators are not run.</div>
       @if (result(); as r) {
         @if (r.failure) {
           <div class="inline-issue error">{{ r.failure }}</div>
@@ -147,7 +181,6 @@ export class IssuesPanel {
 })
 export class TesterPanel {
   readonly store = inject(EditorStore);
-  readonly modelTypeChoice = signal<string | undefined>(undefined);
   readonly modelType = signal<string>('');
   readonly sample = signal('{}');
   readonly storeText = signal('');
@@ -158,7 +191,7 @@ export class TesterPanel {
     // Follow the model selected in the editor.
     effect(() => {
       const selection = this.store.selection();
-      if (selection.kind === 'model' && selection.name !== untracked(this.modelType)) {
+      if (selection?.kind === 'model' && selection.name !== untracked(this.modelType)) {
         untracked(() => {
           this.modelType.set(selection.name);
           this.fillSample();
@@ -167,7 +200,7 @@ export class TesterPanel {
       }
     });
     effect(() => {
-      this.store.doc();
+      this.store.allDocs();
       this.sample();
       this.storeText();
       this.store.settings();
@@ -178,12 +211,12 @@ export class TesterPanel {
 
   fillSample(): void {
     const type = this.modelType();
-    this.sample.set(sampleFor(type, this.store.doc(), this.store.catalog().get(type)));
+    this.sample.set(sampleFor(type, this.store.view(), this.store.catalog().get(type)));
   }
 
   run(): void {
     this.result.set(
-      runTest(this.store.doc(), this.modelType(), this.sample(), this.storeText(), this.store.extraValidatorNames(), this.store.catalog()),
+      runTest(this.store.allDocs(), this.modelType(), this.sample(), this.storeText(), this.store.extraValidatorNames(), this.store.catalog()),
     );
   }
 }

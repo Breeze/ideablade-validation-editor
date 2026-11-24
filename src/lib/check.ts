@@ -29,6 +29,7 @@ import {
   isGroup,
   isModelKey,
   isPlainObject,
+  mergeDocs,
   modelKeys,
 } from './doc';
 import type { Catalog, SourceValidator } from './sources';
@@ -48,6 +49,11 @@ export interface CheckOptions {
   catalog: Catalog;
   /** The application's validators found in the sources, for checking `async`. */
   appValidators?: readonly (SourceValidator & { sourceFile?: string })[];
+  /**
+   * All open metadata documents, in load order, this one included. The library merges them, so model types,
+   * properties, `extends` and `from` resolve across them, and the error key check sees all of a model's rules.
+   */
+  workspace?: readonly MetadataDoc[];
 }
 
 /** Regular expression flags for `pattern`, as both implementations treat them. */
@@ -107,11 +113,13 @@ export function checkDocument(doc: MetadataDoc, options: CheckOptions): Issue[] 
 
   // 2a. The rules themselves, with exact locations.
   const knownValidators = new Set([...BUILT_IN_NAMES, ...options.customValidators]);
-  const modelTypes = new Set([...modelKeys(doc), ...options.catalog.keys()]);
+  const workspace = options.workspace?.length ? options.workspace : [doc];
+  const view = mergeDocs(workspace); // all open documents, as the library merges them
+  const modelTypes = new Set([...modelKeys(view), ...options.catalog.keys()]);
 
   const propertiesOf = (modelType: string, seen = new Set<string>()): Set<string> => {
     const names = new Set<string>(options.catalog.get(modelType)?.properties.map((p) => p.name) ?? []);
-    const entry = doc[modelType];
+    const entry = view[modelType];
     if (isPlainObject(entry) && !seen.has(modelType)) {
       seen.add(modelType);
       Object.keys(isPlainObject(entry['properties']) ? entry['properties'] : {}).forEach((n) => names.add(n));
@@ -264,7 +272,7 @@ export function checkDocument(doc: MetadataDoc, options: CheckOptions): Issue[] 
     ruleSources: [catalogRuleSource(options.catalog)],
   });
   try {
-    metadata.setMetadata(doc as never);
+    metadata.setMetadata(workspace as never);
   } catch (e) {
     add('error', [], `The library can't load the metadata: ${(e as Error).message}`, 'library');
     return issues;

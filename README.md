@@ -6,7 +6,13 @@ A desktop editor for [IdeaBlade Validation](https://github.com/Breeze/ideablade-
 
 ## What it does
 
-- **Opens, edits and saves** a metadata file. Model types are listed on the left. For each one you see its `extends`, `condition`, `$comment`, model-level rules (with `id`, `condition` and `propertyNames`) and properties (`from`, `displayName`, `required`, `minLength`, `maxLength`, rules). Groups (`{ "group": ..., "validators": [...] }`) are edited in place. `$schema`, `$comment` and anything the forms don't know about are kept.
+- **Several metadata files, side by side, in JSON, TypeScript or C#.** Open as many as the application has: the server's `validation.metadata.json` and a client's own view model metadata, for example. Each is listed on the left with its model types; the checks, code completion and "Try it" see all of them together, merged as the library merges several metadata maps (`addMetadata`, `AddMetadataJson`). So `ResourceName.firstName`'s `from: 'StaffingResource'` in the client's TS file resolves against the server's JSON, a duplicate error key across files is caught, and a model type in two files gets a note that the library merges them.
+  - **JSON files**, as before.
+  - **TypeScript:** a `ModelValidationMetadataMap` object literal, as in TempHire's `client-validation-metadata.ts` (`export const x: ModelValidationMetadataMap = { ... }`, or `{ ... } satisfies ModelValidationMetadataMap`). A file with several maps opens as several documents. Saving rewrites only that object literal, in the Prettier style TempHire uses (single quotes, trailing commas, 100 columns), and keeps the file's line endings: the imports, doc comments and other code stay as they are, and an unchanged map is written back byte for byte. A map with code in it (a spread of another map, a reference to a constant) opens read-only, with the reason.
+  - **C#:** the .NET library reads metadata as JSON, so in C# it's a JSON string, usually a raw string literal: `public const string Json = """ { ... } """;` passed to `AddMetadataJson`. Verbatim `@"..."` strings work too. Comments and trailing commas in the JSON are read, as .NET allows them. Saving rewrites only the string, keeping its indentation.
+  - Comments inside a TS object or C# JSON can't be kept when it's rewritten: the editor says so, and asks before saving. Use `$comment` for notes that should stay.
+  - **Save as…** converts: the extension you choose (.json, .ts, .cs) sets the format. A new TS file gets an `import type { ModelValidationMetadataMap }` and an exported constant named after the file; a new C# file a static class with a `Json` constant. **Save all** saves every changed document.
+- **Opens, edits and saves** metadata. Model types are listed on the left. For each one you see its `extends`, `condition`, `$comment`, model-level rules (with `id`, `condition` and `propertyNames`) and properties (`from`, `displayName`, `required`, `minLength`, `maxLength`, rules). Groups (`{ "group": ..., "validators": [...] }`) are edited in place. `$schema`, `$comment` and anything the forms don't know about are kept.
 - **Forms instead of raw JSON.** Validator names come from a list: the built-in validators and the application's own (see Sources). Each validator shows its description, default message and context settings: for the built-in ones from the library's `docs/validators.md` (`minValue`/`maxValue` for `range`, `other`/`op` for `compare`, `values`, and so on), for the application's from what their code reads. `pattern`'s `flags` are toggles for the flags that work the same on client and server (`i`, `m`, `s`, `u`). Each rule shows the error key it will get (`name[_group]_property`, or `name[_group]_id` for model-level rules).
 - **Code completion in expressions** (model conditions, rule conditions, the `expression` validator). As you type, or with Ctrl+Space, it offers what the library puts in scope there:
   - the variables: `model`, `value` (rules only), `context`, `isClient`, `isServer`, `store(type)`, and for model conditions `entityInfos` and `findEntity(id, type)`;
@@ -32,13 +38,13 @@ A desktop editor for [IdeaBlade Validation](https://github.com/Breeze/ideablade-
 - **JSON view** next to the forms, kept in step both ways. JSON that doesn't parse isn't applied; the forms keep the last valid state until it parses again.
 - **Try it:** validate a sample object against the metadata as it is now, with the library's real service. You can give it a store (entities by type) for `store('Type')` expressions. Validators the editor doesn't have (`breeze`, custom ones) pass, and async validators don't run.
 
-| Code completion in an expression | The application's own validators | Rules for a view model from a TS file |
+| Several files: JSON and TS side by side | Code completion in an expression | The application's own validators |
 |---|---|---|
-| ![](docs/screenshots/completion.png) | ![](docs/screenshots/app-validators.png) | ![](docs/screenshots/view-model.png) |
+| ![](docs/screenshots/several-files.png) | ![](docs/screenshots/completion.png) | ![](docs/screenshots/app-validators.png) |
 
-| The duplicate error key check | Try it |
-|---|---|
-| ![](docs/screenshots/duplicate-key.png) | ![](docs/screenshots/try-it.png) |
+| Rules for a view model from a TS file | The duplicate error key check | Try it |
+|---|---|---|
+| ![](docs/screenshots/view-model.png) | ![](docs/screenshots/duplicate-key.png) | ![](docs/screenshots/try-it.png) |
 
 ## Running it
 
@@ -53,11 +59,11 @@ npm start
 
 While working on the editor, `npm run dev` runs `ng serve` (port 4300) with live reload and Electron pointed at it.
 
-A metadata file and sources can be given on the command line, which is handy for trying it out on TempHire:
+Metadata files (JSON, TS or C#) and sources can be given on the command line, which is handy for trying it out on TempHire:
 
 ```powershell
 npm run build
-npx electron . samples/temphire.validation.metadata.json --source=samples/temphire.breeze-metadata.json --source=../temphire.angular/client/src/app/resource-mgt/resource-name-editor.component.ts
+npx electron . samples/temphire.validation.metadata.json ../temphire.angular/client/src/app/core/validation/client-validation-metadata.ts --source=samples/temphire.breeze-metadata.json --source=../temphire.angular/client/src/app/resource-mgt/resource-name-editor.component.ts
 ```
 
 The `samples/` folder has TempHire's validation metadata and its Breeze metadata, exported from `TempHirePersistenceManager.Metadata()`.
@@ -86,12 +92,13 @@ npm 11 lists some packages whose install scripts it didn't run (`esbuild`, `lmdb
 - **Angular 22** (standalone components, signals, zoneless) for the UI. All state is in one signal store (`src/app/editor-store.ts`): the document is the parsed JSON itself, and every edit replaces it immutably. The JSON text, the issues and the model catalog are `computed`s of it, so the forms, the JSON view and the checks can't get out of step.
 - **The library itself** (`ideablade-validation` from npm) does the checks the schema can't do and runs the tester. The editor uses the same code the apps run, so it agrees with them.
 - **Ajv** checks the schema. The validator is precompiled at build time (`scripts/build-schema-validator.mjs`, into `src/generated/`), so the app's Content-Security-Policy needs no `unsafe-eval`.
-- The editor's own logic is plain TypeScript in `src/lib/` and doesn't depend on Angular: the document helpers, the validator catalog, the source readers, expression completion, the checks and the tester. Expression fields use CodeMirror 6.
+- The editor's own logic is plain TypeScript in `src/lib/` and doesn't depend on Angular: the document helpers, the validator catalog, the source readers, metadata in C#, expression completion, the checks and the tester. Metadata in TypeScript is read and written in `electron/typescript-metadata.cjs`, in the main process, with the TypeScript compiler. Expression fields use CodeMirror 6.
 
 ## Limitations of this first drop
 
-- Saving after a form edit writes the whole file in standard two-space JSON. Hand formatting is lost, such as TempHire's one-line `"global": { "validators": ["breeze"] }`. Edits in the JSON view are saved as typed.
-- Several metadata files merged at runtime (the library's `addMetadata`) are edited one at a time. Rules from another file, such as a client's own view model metadata, aren't seen by the duplicate key check.
+- Saving a JSON file after a form edit writes the whole file in standard two-space JSON. Hand formatting is lost, such as TempHire's one-line `"global": { "validators": ["breeze"] }`. Edits in the JSON view are saved as typed. TS objects and C# strings are rewritten in a fixed style (Prettier's for TS), so hand formatting inside them is lost too, and so are comments inside them.
+- Metadata built in code (TS maps put together with spreads or functions, C# built from `ModelValidationConfig` objects) can't be edited: TS maps with code open read-only, and C# is read only as JSON strings.
+- The documents are listed one above the other in one window; there is no split view showing two model editors at once.
 - Breeze metadata comes from a file. TempHire's `api/model/Metadata` endpoint needs a signed-in user, so save its response, or export it as `samples/` was.
 - Model sources supply names, not rules: `from` a Breeze entity resolves, but in "Try it" the inherited Breeze rules (`[Required]`, `[StringLength]`) don't run.
 - C# is read with patterns, not Roslyn. Unusual syntax (properties split over several lines, generics with nested angle brackets in property types) may be missed.
