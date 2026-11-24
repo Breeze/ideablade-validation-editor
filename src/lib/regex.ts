@@ -311,16 +311,34 @@ function hintsFor(ast: AST.Pattern, source: string, flags: string): RegexHint[] 
     hints.push({ severity: 'info', message: 'With the m flag, ^ and $ match at every line, so a value with several lines passes if one line matches.' });
   }
 
-  // The server runs the same rule (.NET, through the library's JsRegExp).
-  const usesUnicodeSensitive = /\\[dwbDWB]/.test(source);
-  if (flags.includes('s') && usesUnicodeSensitive) {
+  // The server runs the same rule (.NET, through the library's JsRegExp), which honours i, m and s and ignores u.
+  const unicode = flags.includes('u') || flags.includes('v');
+  const usesProperties = /\\[pP]\{/.test(source);
+  if (/\\u\{[0-9a-fA-F]+\}/.test(source) || /\\[pP]\{[^}=]+=[^}]*\}/.test(source)) {
     hints.push({
-      severity: 'info',
-      message: 'With the s flag the .NET server matches in its standard mode, where \\d, \\w and \\b also accept non-ASCII digits and letters (such as Arabic-Indic digits). The browser accepts only ASCII.',
+      severity: 'warning',
+      message: "The .NET server can't parse \\u{…} or \\p{Name=Value} (such as \\p{Script=Greek}): it throws when it creates the validator. Write the character itself, or use a Unicode category such as \\p{L}.",
     });
   }
-  if (/\\[pP]\{/.test(source)) {
-    hints.push({ severity: 'info', message: 'Unicode property escapes (\\p{…}) need the u flag in the browser, and .NET names some properties differently: check the rule on the server too.' });
+  if (usesProperties && !unicode) {
+    hints.push({
+      severity: 'warning',
+      message: "\\p{…} needs the u flag: without it the browser reads \\p{L} as the text 'p{L}', while the .NET server reads a Unicode category, so they disagree.",
+    });
+  }
+  // .NET matches in its standard mode with the s flag, or when its JavaScript-compatible mode can't parse the pattern
+  // (\p{…} is one such case). There \d, \w and \b are Unicode-aware.
+  if ((flags.includes('s') || usesProperties) && /\\[dwbDWB]/.test(source)) {
+    hints.push({
+      severity: 'info',
+      message: `${flags.includes('s') ? 'With the s flag' : 'Because of \\p{…}'} the .NET server matches in its standard mode, where \\d, \\w and \\b also accept non-ASCII digits and letters (such as Arabic-Indic digits). The browser accepts only ASCII.`,
+    });
+  }
+  if (unicode && [...source].some((ch) => ch.codePointAt(0)! > 0xffff)) {
+    hints.push({
+      severity: 'info',
+      message: 'With the u flag the browser counts an emoji (or another character beyond U+FFFF) as one character; the .NET server counts two, so ., [ ] and {n} can match differently.',
+    });
   }
   return hints;
 }

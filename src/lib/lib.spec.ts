@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import breezeMetadata from '../../samples/temphire.breeze-metadata.json';
 import tempHireMetadata from '../../samples/temphire.validation.metadata.json';
-import { checkDocument, checkRegexFlags } from './check';
+import { checkDocument, checkRegexFlags, serverUnsupported } from './check';
 import { complete, typeFromText } from './completion';
 import { newCsMetadataFile, pascalCaseFromFile, readCsMetadata, writeCsMetadata } from './cs-metadata';
 import { type MetadataDoc, lineOfPath, mergeDocs, setIn, stringify } from './doc';
@@ -343,6 +343,33 @@ describe('the regular expression panel', () => {
     // 'g' changes nothing, as the validator starts each test from the start.
     expect(testSamples('^a', 'g', ['a', 'a', 'a'])!.map((r) => r.passes)).toEqual([true, true, true]);
     expect(testSamples('[', '', ['x'])).toBeUndefined();
+  });
+
+  it('points out where the .NET server, which ignores u, differs or fails', () => {
+    const messages = (pattern: string, flags = '') => analyzeRegex(pattern, flags).hints.map((h) => h.message);
+    // \p{…} without u: the text 'p{L}' in the browser, a category on the server.
+    expect(messages(String.raw`^\p{L}+$`)).toEqual([expect.stringContaining('needs the u flag')]);
+    expect(messages(String.raw`^\p{L}+$`, 'u')).toEqual([]);
+    // Syntax the server can't parse.
+    expect(messages(String.raw`^\u{1F600}$`, 'u')).toEqual([expect.stringContaining("can't parse")]);
+    expect(messages(String.raw`^\p{Script=Greek}+$`, 'u')).toEqual([expect.stringContaining("can't parse")]);
+    // \p{…} puts the server in its standard mode, where \d is Unicode-aware.
+    expect(messages(String.raw`^\p{L}\d$`, 'u')).toEqual([expect.stringContaining('Because of \\p{…}')]);
+    // An emoji is one character in the browser with u, two on the server.
+    expect(messages('^😀$', 'u')).toEqual([expect.stringContaining('beyond U+FFFF')]);
+    expect(messages('^😀$')).toEqual([]);
+  });
+
+  it('reports patterns the server cannot parse as errors, and \\p without u as a warning', () => {
+    const rule = (expression: string, flags?: string) =>
+      checkDocument(setIn(doc, ['Address', 'properties', 'city', 'validators'], [{ name: 'pattern', context: { expression, ...(flags ? { flags } : {}) } }]) as MetadataDoc, {
+        customValidators: [],
+        catalog,
+      }).filter((i) => i.path[1] === 'properties' && i.path[2] === 'city');
+    expect(rule(String.raw`^\p{Script=Greek}+$`, 'u').map((i) => i.severity)).toEqual(['error']);
+    expect(rule(String.raw`^\p{L}+$`).map((i) => i.severity)).toEqual(['warning']);
+    expect(rule(String.raw`^\p{L}+$`, 'u')).toEqual([]);
+    expect(serverUnsupported(String.raw`\u{1F600}\p{sc=Grek}`)).toEqual(['\\u{…}', '\\p{…=…}']);
   });
 
   it('offers common patterns that compile and match what they say', () => {

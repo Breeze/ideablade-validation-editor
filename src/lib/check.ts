@@ -56,13 +56,31 @@ export interface CheckOptions {
   workspace?: readonly MetadataDoc[];
 }
 
-/** Regular expression flags for `pattern`, as both implementations treat them. */
+/**
+ * Regular expression flags for `pattern`, as both implementations treat them. The .NET side (the library's
+ * JsRegExp.Create) honours i, m and s, and ignores the others.
+ */
 export const REGEX_FLAGS: { flag: string; label: string; help: string }[] = [
-  { flag: 'i', label: 'ignore case', help: 'Upper and lower case match each other.' },
-  { flag: 'm', label: 'multiline', help: '^ and $ match at the start and end of each line, not only of the whole value.' },
-  { flag: 's', label: 'dotAll', help: '. also matches line breaks.' },
-  { flag: 'u', label: 'unicode', help: 'Unicode-aware matching in JavaScript (\\u{...}, \\p{...}). .NET accepts it and matches as usual.' },
+  { flag: 'i', label: 'ignore case', help: 'Upper and lower case match each other, in the browser and on the server.' },
+  { flag: 'm', label: 'multiline', help: '^ and $ match at the start and end of each line, not only of the whole value. The same on both sides.' },
+  { flag: 's', label: 'dotAll', help: '. also matches line breaks. On the .NET server it also makes \\d and \\w accept non-ASCII digits and letters.' },
+  {
+    flag: 'u',
+    label: 'unicode',
+    help: 'Needed in the browser for \\p{…} (such as \\p{L}, any letter). The .NET server ignores it: Unicode categories like \\p{L} work on both sides, but \\u{…}, \\p{Script=…} and an emoji counted as one character don\'t.',
+  },
 ];
+
+/**
+ * Pattern syntax the .NET server can't parse (it throws when it creates the validator): \u{…} code points and \p{…}
+ * with a property value such as \p{Script=Greek}. The browser accepts both with the u flag.
+ */
+export function serverUnsupported(source: string): string[] {
+  const found: string[] = [];
+  if (/\\u\{[0-9a-fA-F]+\}/.test(source)) found.push('\\u{…}');
+  if (/\\[pP]\{[^}=]+=[^}]*\}/.test(source)) found.push('\\p{…=…}');
+  return found;
+}
 
 /** Problems with a pattern's flags: letters JavaScript rejects, and flags that don't do what one would expect. */
 export function checkRegexFlags(flags: string): { severity: Severity; message: string }[] {
@@ -183,6 +201,14 @@ export function checkDocument(doc: MetadataDoc, options: CheckOptions): Issue[] 
           }
         }
         flagProblems.filter((p) => p.severity !== 'error').forEach((p) => add(p.severity, flagsPath, p.message, 'library'));
+        const source = literal ? literal[1] : pattern;
+        const unsupported = serverUnsupported(source);
+        if (unsupported.length) {
+          add('error', [...path, 'context', 'expression'], `The .NET server can't parse ${unsupported.join(' or ')}: it throws when it creates this validator, so saves fail there. Write the character itself, or use a Unicode category such as \\p{L}.`, 'library');
+        }
+        if (/\\[pP]\{/.test(source) && !flags.includes('u') && !flags.includes('v')) {
+          add('warning', [...path, 'context', 'expression'], "\\p{…} needs the u flag: without it the browser reads it as the text 'p{…}', while the .NET server reads a Unicode category, so they disagree.", 'library');
+        }
         if (literal && typeof context['flags'] === 'string' && context['flags']) {
           add('warning', [...path, 'context', 'flags'], "The pattern is written as /pattern/flags, so its own flags apply and context.flags is ignored.", 'library');
         }
