@@ -117,6 +117,7 @@ const explainOnHover = hoverTooltip((view, pos) => {
       </details>
     }
 
+    <div class="hint">{{ whereKept() }}</div>
     <div class="regex-samples">
       @for (column of columns; track column.kind) {
         <div class="regex-column">
@@ -155,6 +156,13 @@ export class RegexEditor implements OnDestroy {
   ];
   readonly analysis = computed(() => analyzeRegex(this.value() ?? '', this.flags() ?? ''));
   readonly tests = computed(() => this.store.regexTests()[this.testKey()] ?? { shouldPass: [], shouldFail: [] });
+  /** Where the values to try are kept, so it's clear they'll be there next time (and for whom). */
+  readonly whereKept = computed(() => {
+    const project = this.store.project();
+    if (!project) return 'Values to try are kept for you alone. Create a project file to keep them with the rule, for everyone.';
+    const name = project.path.split(/[\\/]/).pop();
+    return `Values to try are kept with this rule (${this.testKey()}) in ${name}, saved when you save the metadata.`;
+  });
   readonly commonNote = computed(() => {
     const p = this.common.find((c) => c.pattern === this.value());
     return p?.builtIn ? `The built-in ${p.builtIn} validator does this too, with its own message: prefer it.` : '';

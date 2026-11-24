@@ -229,6 +229,44 @@ export class EditorStore {
     this.regexTests.set(all);
     if (!this.project()) localStorage.setItem(REGEX_TESTS_KEY, JSON.stringify(all));
   }
+
+  /**
+   * Moves test values to new keys when what they're keyed by changes (a model, property or group renamed, a
+   * model-level rule's id changed), so they stay with their rule. `rename` returns the new key, or undefined to keep it.
+   */
+  moveRegexTests(rename: (key: string) => string | undefined): void {
+    const all: Record<string, RegexTestSet> = {};
+    let moved = false;
+    for (const [key, tests] of Object.entries(this.regexTests())) {
+      const next = rename(key);
+      if (next !== undefined && next !== key) moved = true;
+      all[next ?? key] = tests;
+    }
+    if (!moved) return;
+    this.regexTests.set(all);
+    if (!this.project()) localStorage.setItem(REGEX_TESTS_KEY, JSON.stringify(all));
+  }
+
+  /**
+   * Saving a metadata file also saves its rules' test values to the project file, so they're there for the next edit.
+   * Only the test values: the project's other changes (sources, settings) wait for the project's own Save.
+   */
+  private async saveRegexTestsToProject(): Promise<void> {
+    const project = this.project();
+    if (!project || stableJson(this.regexTests()) === stableJson(project.regexTests ?? {})) return;
+    try {
+      const saved = await host.writeProject(project.path, {
+        metadata: project.metadata,
+        sources: project.sourceFiles,
+        otherValidators: project.otherValidators,
+        camelCase: project.camelCase,
+        regexTests: this.regexTests(),
+      });
+      this.project.set(saved);
+    } catch (e) {
+      this.status.set(`Could not save the test values to the project: ${(e as Error).message}`);
+    }
+  }
   readonly dirty = computed(() => this.documents().some((d) => d.dirty()) || this.projectDirty());
   readonly title = computed(() => {
     const active = this.active();
@@ -355,6 +393,8 @@ export class EditorStore {
     if (!active || active.readOnly() || !to || to === from || active.doc()[to] !== undefined) return;
     active.setDoc(renameKey(active.doc(), from, to));
     this.selection.set({ docId: active.id, kind: 'model', name: to });
+    // Test values are keyed 'Model.property', 'Model@group#id' and so on.
+    this.moveRegexTests((key) => (/^[.@#]/.test(key.slice(from.length)) && key.startsWith(from) ? to + key.slice(from.length) : undefined));
   }
 
   removeModel(name: string): void {
@@ -651,6 +691,7 @@ export class EditorStore {
   private afterSave(doc: MetadataDocument): void {
     const errors = this.allIssues().filter((i) => i.docId === doc.id && i.severity === 'error').length;
     this.status.set(`Saved ${doc.label()}${errors ? ` with ${errors} error${errors === 1 ? '' : 's'}` : ''}`);
+    void this.saveRegexTestsToProject();
   }
 
   /** True when nothing is unsaved, or the user saved or discarded each document's changes. */

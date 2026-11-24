@@ -6,7 +6,7 @@ import { checkDocument, checkRegexFlags, serverUnsupported } from './check';
 import { complete, typeFromText } from './completion';
 import { newCsMetadataFile, pascalCaseFromFile, readCsMetadata, writeCsMetadata } from './cs-metadata';
 import { type MetadataDoc, lineOfPath, mergeDocs, setIn, stringify } from './doc';
-import { COMMON_PATTERNS, analyzeRegex, splitPattern, testSamples } from './regex';
+import { COMMON_PATTERNS, analyzeRegex, regexTestKey, splitPattern, testSamples } from './regex';
 import { buildCatalog, camelCase, parseBreeze, parseCSharp, parseCSharpApp, parseSource } from './sources';
 import { runTest } from './tester';
 
@@ -370,6 +370,15 @@ describe('the regular expression panel', () => {
     expect(rule(String.raw`^\p{L}+$`).map((i) => i.severity)).toEqual(['warning']);
     expect(rule(String.raw`^\p{L}+$`, 'u')).toEqual([]);
     expect(serverUnsupported(String.raw`\u{1F600}\p{sc=Grek}`)).toEqual(['\\u{…}', '\\p{…=…}']);
+  });
+
+  it('keys test values like the rule error key, so an id on a property rule changes nothing', () => {
+    expect(regexTestKey('Address', 'city', undefined, undefined)).toBe('Address.city');
+    expect(regexTestKey('Address', 'city', undefined, 'CITY')).toBe('Address.city');
+    expect(regexTestKey('Address', 'city', 'submit', undefined)).toBe('Address.city@submit');
+    expect(regexTestKey('Order', undefined, undefined, 'DATES')).toBe('Order#DATES');
+    expect(regexTestKey('Order', undefined, 'submit', 'DATES')).toBe('Order@submit#DATES');
+    expect(regexTestKey(undefined, undefined, undefined, undefined)).toBe('global#');
   });
 
   it('offers common patterns that compile and match what they say', () => {

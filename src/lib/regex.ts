@@ -441,3 +441,15 @@ export const COMMON_PATTERNS: CommonPattern[] = [
   { label: 'U.S. phone, 10 digits', pattern: '^\\(?\\d{3}\\)?[-. ]?\\d{3}[-. ]?\\d{4}$', builtIn: 'phone' },
   { label: 'Whole number', pattern: '^-?\\d+$', builtIn: 'integer' },
 ];
+
+/**
+ * The key a pattern rule's test values are kept under in the project file. It follows the rule's error key, so it
+ * stays the same as long as the rule is the same rule: `Address.city` or `Address.city@submit` for a property rule
+ * (an id isn't part of a property rule's key), `Order#DATES_IN_ORDER` or `Order@submit#DATES_IN_ORDER` for a
+ * model-level rule, `global#...` for a global one.
+ */
+export function regexTestKey(modelType: string | undefined, propertyName: string | undefined, group: string | undefined, id: string | undefined): string {
+  const model = modelType ?? 'global';
+  const g = group ? `@${group}` : '';
+  return propertyName ? `${model}.${propertyName}${g}` : `${model}${g}#${id ?? ''}`;
+}

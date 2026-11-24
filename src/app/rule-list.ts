@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, output, si
 
 import { COMMON_SETTINGS, OPERATORS, type SettingInfo } from '../lib/catalog';
 import { REGEX_FLAGS } from '../lib/check';
+import { regexTestKey } from '../lib/regex';
 import type { ExpressionSite } from '../lib/completion';
 import {
   type GroupEntry,
@@ -229,12 +230,8 @@ export class RuleEditor {
   }));
   readonly expressionSite = computed<ExpressionSite>(() => ({ ...this.conditionSite(), kind: 'expression' }));
 
-  /** Where this rule's values to try are kept: by model, property (or model-level), group and id. */
-  readonly regexTestKey = computed(() => {
-    const group = this.group();
-    const id = this.rule().id;
-    return `${this.modelType() ?? 'global'}.${this.propertyName() ?? '(model)'}${group ? '@' + group : ''}${id ? '#' + id : ''}`;
-  });
+  /** Where this rule's values to try are kept, in the project file: see regexTestKey(). */
+  readonly regexTestKey = computed(() => regexTestKey(this.modelType(), this.propertyName(), this.group(), this.rule().id));
 
   readonly flags = computed(() => (typeof this.context()['flags'] === 'string' ? (this.context()['flags'] as string) : ''));
   readonly otherFlags = computed(() => [...new Set(this.flags().split(''))].filter((f) => !REGEX_FLAGS.some((r) => r.flag === f)));
@@ -302,7 +299,13 @@ export class RuleEditor {
   }
 
   set(key: string, value: Json | undefined): void {
+    const testKey = this.regexTestKey();
     this.store.updateValidator(this.path(), (v) => withKey(v, key, value) as ValidatorObject);
+    // A model-level rule's id is part of its test values' key: keep them with the rule.
+    if (key === 'id') {
+      const next = this.regexTestKey();
+      this.store.moveRegexTests((k) => (k === testKey ? next : undefined));
+    }
   }
 
   setContext(key: string, value: Json | undefined): void {
@@ -447,7 +450,12 @@ export class RuleList {
   }
 
   setGroupName(index: number, name: string): void {
+    const old = (this.rules()[index] as GroupEntry).group;
     this.store.update(this.at(index, 'group'), name);
+    // The group is part of its rules' test values' keys: keep them with the rules.
+    const from = regexTestKey(this.modelType(), this.propertyName(), old, undefined).replace(/#$/, '');
+    const to = regexTestKey(this.modelType(), this.propertyName(), name, undefined).replace(/#$/, '');
+    this.store.moveRegexTests((k) => (k === from || k.startsWith(from + '#') ? to + k.slice(from.length) : undefined));
   }
 
   setGroupComment(index: number, text: string): void {

@@ -1,18 +1,24 @@
 // Electron main process: one window, plus file dialogs and file I/O for the renderer (see preload.cjs).
-const { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { withTypeScriptModels } = require('./typescript-models.cjs');
 const { readTsMetadata, writeTsMetadata, newTsMetadataFile } = require('./typescript-metadata.cjs');
 const { PROJECT_EXTENSION, projectFileName, findProject, readProject, writeProject, watchProjectFolders } = require('./project.cjs');
+const { loadWindowState, trackWindowState } = require('./window-state.cjs');
 
 let win;
 let forceClose = false;
 
 function createWindow() {
+  // The size and position it had when it was last closed (window-state.cjs).
+  const stateFile = path.join(app.getPath('userData'), 'window-state.json');
+  const state = loadWindowState(stateFile, screen.getAllDisplays());
   win = new BrowserWindow({
-    width: 1500,
-    height: 950,
+    width: state.width,
+    height: state.height,
+    ...(state.x !== undefined ? { x: state.x, y: state.y } : {}),
+    show: false, // shown once placed, maximised if it was, so it doesn't jump
     backgroundColor: '#1e1e1e', // the default dark theme, until the renderer says otherwise (no white flash)
     title: 'IdeaBlade Validation Editor',
     webPreferences: {
@@ -22,6 +28,10 @@ function createWindow() {
       sandbox: true,
     },
   });
+
+  if (state.maximized) win.maximize();
+  win.once('ready-to-show', () => win.show());
+  trackWindowState(win, stateFile);
 
   const devUrl = process.env.ELECTRON_START_URL;
   if (devUrl) {

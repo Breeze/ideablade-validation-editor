@@ -112,6 +112,9 @@ export class PropertyEditor {
     const properties = this.store.get(propertiesPath);
     if (!to || !isPlainObject(properties) || properties[to] !== undefined) return;
     this.store.update(propertiesPath, renameKey(properties, this.name(), to));
+    // Its pattern rules' test values are keyed 'Model.property[@group]': keep them with the property.
+    const from = `${this.modelType()}.${this.name()}`;
+    this.store.moveRegexTests((k) => (k === from || k.startsWith(from + '@') ? `${this.modelType()}.${to}${k.slice(from.length)}` : undefined));
   }
 
   remove(): void {
