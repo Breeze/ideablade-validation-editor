@@ -21,6 +21,8 @@ A desktop editor for [IdeaBlade Validation](https://github.com/Breeze/ideablade-
   - **common patterns** to start from (letters only, a name, a code, no leading or trailing spaces…), with a note where a built-in validator such as `zipCode` or `phone` does the same.
 
   It's built on [regexpp](https://github.com/eslint-community/regexpp), the regular expression parser ESLint uses.
+
+  ![The regular expression panel: a pattern without ^ and $, the hint that offers to add them, the pattern read step by step, and values to try, two of which pass though they should fail](docs/screenshots/regex-panel.png)
 - **Code completion in expressions** (model conditions, rule conditions, the `expression` validator). As you type, or with Ctrl+Space, it offers what the library puts in scope there:
   - the variables: `model`, `value` (rules only), `context`, `isClient`, `isServer`, `store(type)`, and for model conditions `entityInfos` and `findEntity(id, type)`;
   - the model's properties, with their types, and the members of those types: `model.firstName.` offers the string methods, `value.` on a date the `get…` methods, `model.addresses.` the array methods;
