@@ -31,7 +31,7 @@ import {
   isPlainObject,
   modelKeys,
 } from './doc';
-import type { Catalog } from './sources';
+import type { Catalog, SourceValidator } from './sources';
 
 export type Severity = 'error' | 'warning' | 'info';
 
@@ -46,6 +46,32 @@ export interface CheckOptions {
   /** Validator names the application registers itself, beyond the built-in ones. */
   customValidators: readonly string[];
   catalog: Catalog;
+  /** The application's validators found in the sources, for checking `async`. */
+  appValidators?: readonly (SourceValidator & { sourceFile?: string })[];
+}
+
+/** Regular expression flags for `pattern`, as both implementations treat them. */
+export const REGEX_FLAGS: { flag: string; label: string; help: string }[] = [
+  { flag: 'i', label: 'ignore case', help: 'Upper and lower case match each other.' },
+  { flag: 'm', label: 'multiline', help: '^ and $ match at the start and end of each line, not only of the whole value.' },
+  { flag: 's', label: 'dotAll', help: '. also matches line breaks.' },
+  { flag: 'u', label: 'unicode', help: 'Unicode-aware matching in JavaScript (\\u{...}, \\p{...}). .NET accepts it and matches as usual.' },
+];
+
+/** Problems with a pattern's flags: letters JavaScript rejects, and flags that don't do what one would expect. */
+export function checkRegexFlags(flags: string): { severity: Severity; message: string }[] {
+  const problems: { severity: Severity; message: string }[] = [];
+  const invalid = [...new Set(flags.split('').filter((f) => !'dgimsuvy'.includes(f)))];
+  if (invalid.length) problems.push({ severity: 'error', message: `Not a regular expression flag: ${invalid.join(', ')}. Use ${REGEX_FLAGS.map((f) => f.flag).join(', ')}.` });
+  const repeated = [...new Set(flags.split('').filter((f, i) => flags.indexOf(f) !== i))];
+  if (repeated.length) problems.push({ severity: 'error', message: `Flag given twice: ${repeated.join(', ')}.` });
+  if (flags.includes('u') && flags.includes('v')) problems.push({ severity: 'error', message: "The 'u' and 'v' flags can't be combined." });
+  if (flags.includes('g') || flags.includes('y')) {
+    problems.push({ severity: 'warning', message: "Don't use 'g' or 'y': in JavaScript they make test() remember where it stopped, so a validator that runs twice can alternate between passing and failing. .NET ignores them." });
+  }
+  if (flags.includes('v')) problems.push({ severity: 'warning', message: "The 'v' flag is JavaScript-only; .NET doesn't know it, so client and server may match differently." });
+  if (flags.includes('d')) problems.push({ severity: 'warning', message: "The 'd' flag only adds match indices; it doesn't change what matches." });
+  return problems;
 }
 
 /** Stand-ins for validators the editor doesn't have (`breeze`, the app's own): they always pass. */
@@ -105,7 +131,16 @@ export function checkDocument(doc: MetadataDoc, options: CheckOptions): Issue[] 
     const namePath = typeof rule === 'string' ? path : [...path, 'name'];
     if (typeof name !== 'string' || !name) return; // the schema reports it
     if (!knownValidators.has(name)) {
-      add('error', namePath, `Unknown validator '${name}'. If the application registers it, add it to the custom validators.`, 'library');
+      add('error', namePath, `Unknown validator '${name}'. If the application registers it, add the file that defines it as a source, or list it under Settings → Other validators.`, 'library');
+    }
+    const isAsync = typeof rule !== 'string' && isPlainObject(rule) && rule.async === true;
+    const app = options.appValidators?.find((a) => a.name === name);
+    if (app) {
+      if (isAsync && !app.async) {
+        add('error', [...path, 'async'], `'${name}' is registered as a synchronous validator (${app.sourceFile ?? 'source'}); remove async.`, 'library');
+      } else if (!isAsync && !app.sync) {
+        add('error', namePath, `'${name}' is registered as an asynchronous validator (${app.sourceFile ?? 'source'}); set async.`, 'library');
+      }
     }
     if (typeof rule === 'string' || !isPlainObject(rule)) return;
     const v = rule as ValidatorObject;
@@ -122,11 +157,21 @@ export function checkDocument(doc: MetadataDoc, options: CheckOptions): Issue[] 
       if (typeof pattern !== 'string' || !pattern) {
         add('error', [...path, 'context'], "A 'pattern' validator needs context.expression (the pattern).", 'library');
       } else {
-        try {
-          const m = /^\/(.*)\/([a-z]*)$/s.exec(pattern);
-          new RegExp(m ? m[1] : pattern, m ? m[2] : typeof context['flags'] === 'string' ? context['flags'] : undefined);
-        } catch (e) {
-          add('error', [...path, 'context', 'expression'], `The pattern is not a valid regular expression: ${(e as Error).message}`, 'library');
+        const literal = /^\/(.*)\/([a-z]*)$/s.exec(pattern);
+        const flags = literal ? literal[2] : typeof context['flags'] === 'string' ? context['flags'] : '';
+        const flagsPath = literal ? [...path, 'context', 'expression'] : [...path, 'context', 'flags'];
+        const flagProblems = checkRegexFlags(flags);
+        flagProblems.filter((p) => p.severity === 'error').forEach((p) => add('error', flagsPath, p.message, 'library'));
+        if (!flagProblems.some((p) => p.severity === 'error')) {
+          try {
+            new RegExp(literal ? literal[1] : pattern, flags);
+          } catch (e) {
+            add('error', [...path, 'context', 'expression'], `The pattern is not a valid regular expression: ${(e as Error).message}`, 'library');
+          }
+        }
+        flagProblems.filter((p) => p.severity === 'warning').forEach((p) => add('warning', flagsPath, p.message, 'library'));
+        if (literal && typeof context['flags'] === 'string' && context['flags']) {
+          add('warning', [...path, 'context', 'flags'], "The pattern is written as /pattern/flags, so its own flags apply and context.flags is ignored.", 'library');
         }
       }
     }

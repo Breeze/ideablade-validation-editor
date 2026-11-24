@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
 
-import { BUILT_IN_NAMES, COMMON_SETTINGS, OPERATORS, type SettingInfo, validatorInfo } from '../lib/catalog';
+import { COMMON_SETTINGS, OPERATORS, type SettingInfo } from '../lib/catalog';
+import { REGEX_FLAGS } from '../lib/check';
+import type { ExpressionSite } from '../lib/completion';
 import {
   type GroupEntry,
   type Json,
@@ -13,6 +15,7 @@ import {
   moveItem,
 } from '../lib/doc';
 import { EditorStore } from './editor-store';
+import { ExpressionInput } from './expression-input';
 import { InlineIssues, commentText, commentValue, uniqueId } from './inline-issues';
 
 /** Context settings that need something in them to be useful, so a new rule starts with them. */
@@ -43,7 +46,7 @@ function newRule(name: string): RuleEntry {
 @Component({
   selector: 'app-rule-editor',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [InlineIssues],
+  imports: [InlineIssues, ExpressionInput],
   host: { class: 'rule', '[class.open]': 'open()', '[class.has-error]': 'hasError()' },
   template: `
     <div class="rule-head" (click)="open.set(!open())">
@@ -67,7 +70,9 @@ function newRule(name: string): RuleEntry {
           <datalist [id]="listId">
             @for (name of validatorNames(); track name) { <option [value]="name"></option> }
           </datalist>
-          @if (info(); as info) { <small>{{ info.description }}</small> }
+          @if (info(); as info) {
+            <small>{{ info.description }}@if (info.defaultMessage) { Default message: <code>{{ info.defaultMessage }}</code>}</small>
+          }
         </label>
         <app-inline-issues [path]="namePath()" [exact]="true" />
         <div class="row">
@@ -75,10 +80,11 @@ function newRule(name: string): RuleEntry {
           <label class="check"><input type="checkbox" [checked]="!!rule().async" (change)="set('async', $any($event.target).checked || undefined)" /> async</label>
         </div>
         <div class="key-preview">Error key: <code>{{ errorKey() }}</code>@if (!propertyName() && !rule().id) { <small> (give model-level rules an id so their keys differ)</small> }</div>
-        <label>Condition
-          <textarea class="code" rows="1" [value]="rule().condition ?? ''" placeholder="runs only when truthy, e.g. model.country === 'US'"
-            (input)="set('condition', $any($event.target).value || undefined)"></textarea>
-        </label>
+        <div class="field">
+          <span class="field-label">Condition <small>(the rule runs only when this is truthy)</small></span>
+          <app-expression-input [value]="rule().condition ?? ''" [site]="conditionSite()" placeholder="e.g. model.country === 'US'"
+            (changed)="set('condition', $event || undefined)" />
+        </div>
         <app-inline-issues [path]="at('condition')" />
 
         @if (!propertyName() && modelType()) {
@@ -132,9 +138,24 @@ function newRule(name: string): RuleEntry {
                   <textarea rows="3" [value]="valuesText(s.key)" (change)="setValues(s.key, $any($event.target).value)"></textarea>
                 }
                 @case ('expression') {
+                  {{ s.label ?? s.key }} <small>(the value is valid when this is truthy)</small>
+                  <app-expression-input [value]="$any(context()[s.key] ?? '')" [site]="expressionSite()" placeholder="e.g. model.endDate == null || model.endDate > model.startDate"
+                    (changed)="setContext(s.key, $event)" />
+                }
+                @case ('flags') {
                   {{ s.label ?? s.key }}
-                  <textarea class="code" rows="2" [value]="context()[s.key] ?? ''" placeholder="e.g. model.endDate == null || model.endDate > model.startDate"
-                    (input)="setContext(s.key, $any($event.target).value)"></textarea>
+                  <span class="chips">
+                    @for (f of regexFlags; track f.flag) {
+                      <span class="chip" role="checkbox" tabindex="0" [attr.aria-checked]="hasFlag(f.flag)" [class.on]="hasFlag(f.flag)" [title]="f.help"
+                        (click)="$event.preventDefault(); toggleFlag(f.flag)" (keydown.space)="$event.preventDefault(); toggleFlag(f.flag)">
+                        <code>{{ f.flag }}</code> {{ f.label }}
+                      </span>
+                    }
+                    @for (f of otherFlags(); track f) {
+                      <span class="chip on unknown" title="Not offered: see the warning" (click)="$event.preventDefault(); toggleFlag(f)"><code>{{ f }}</code> ✕</span>
+                    }
+                  </span>
+                  @if (patternHasOwnFlags()) { <small>The pattern is written as /pattern/flags; its own flags apply.</small> }
                 }
                 @default {
                   {{ s.label ?? s.key }}
@@ -184,10 +205,34 @@ export class RuleEditor {
     return typeof raw === 'string' ? { name: raw } : isPlainObject(raw) ? (raw as ValidatorObject) : { name: '' };
   });
   readonly namePath = computed(() => (typeof this.raw() === 'string' ? this.path() : this.at('name')));
-  readonly info = computed(() => validatorInfo(this.rule().name));
-  readonly validatorNames = computed(() => [...new Set([...BUILT_IN_NAMES, ...this.store.settings().customValidators])]);
+  readonly info = computed(() => this.store.validatorInfo(this.rule().name));
+  readonly validatorNames = this.store.validatorNames;
   readonly known = computed(() => this.validatorNames().includes(this.rule().name));
   readonly context = computed<JsonObject>(() => (isPlainObject(this.rule().context) ? this.rule().context! : {}));
+  readonly regexFlags = REGEX_FLAGS;
+
+  /** Where this rule's expressions are, for code completion. */
+  readonly conditionSite = computed<ExpressionSite>(() => ({
+    kind: 'validatorCondition',
+    modelType: this.modelType(),
+    propertyName: this.propertyName(),
+    contextKeys: Object.keys(this.context()),
+  }));
+  readonly expressionSite = computed<ExpressionSite>(() => ({ ...this.conditionSite(), kind: 'expression' }));
+
+  readonly flags = computed(() => (typeof this.context()['flags'] === 'string' ? (this.context()['flags'] as string) : ''));
+  readonly otherFlags = computed(() => [...new Set(this.flags().split(''))].filter((f) => !REGEX_FLAGS.some((r) => r.flag === f)));
+  readonly patternHasOwnFlags = computed(() => typeof this.context()['expression'] === 'string' && /^\/.*\/[a-z]*$/s.test(this.context()['expression'] as string));
+
+  hasFlag(flag: string): boolean {
+    return this.flags().includes(flag);
+  }
+
+  toggleFlag(flag: string): void {
+    const current = this.flags();
+    const next = current.includes(flag) ? current.split(flag).join('') : current + flag;
+    this.setContext('flags', next || undefined);
+  }
   readonly settings = computed<SettingInfo[]>(() => [...(this.info()?.settings ?? []), ...COMMON_SETTINGS]);
   readonly hasError = computed(() => this.store.issuesAt(this.path()).some((i) => i.severity === 'error'));
   readonly comment = computed(() => commentText(this.rule().$comment));
@@ -358,7 +403,7 @@ export class RuleList {
     const value = this.store.get(this.path());
     return (Array.isArray(value) ? value : []) as RuleEntry[];
   });
-  readonly validatorNames = computed(() => [...new Set([...BUILT_IN_NAMES, ...this.store.settings().customValidators])]);
+  readonly validatorNames = this.store.validatorNames;
   readonly isGroup = isGroup;
   readonly comment = (rule: GroupEntry) => commentText(rule.$comment);
 

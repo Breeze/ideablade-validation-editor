@@ -15,7 +15,9 @@ import {
   setIn,
   stringify,
 } from '../lib/doc';
-import { type ModelSource, buildCatalog, fileName, parseSource } from '../lib/sources';
+import { type ValidatorInfo, validatorCatalog } from '../lib/catalog';
+import type { CompletionEnv } from '../lib/completion';
+import { type ModelSource, appFunctions, appValidators, buildCatalog, fileName, parseSource } from '../lib/sources';
 import { host } from './host';
 
 /** What the main area shows: the document's own settings (global rules, `$comment`) or a model type. */
@@ -63,9 +65,22 @@ export class EditorStore {
   readonly modelTypes = computed(() => modelKeys(this.doc()));
   /** Model types for pickers: the document's and the model sources'. */
   readonly allModelTypes = computed(() => [...new Set([...this.modelTypes(), ...this.catalog().keys()])].sort());
+  /** The application's validators and expression functions, found in the TS / C# sources. */
+  readonly appValidators = computed(() => appValidators(this.sources()));
+  readonly appFunctions = computed(() => appFunctions(this.sources()));
+  /** Every validator the editor offers: built-in, the application's, and those named in the settings. */
+  readonly validators = computed(() => validatorCatalog(this.appValidators(), this.settings().customValidators));
+  readonly validatorNames = computed(() => this.validators().map((v) => v.name));
+  /** Validator names besides the built-in ones, for the checks and the tester's stand-ins. */
+  readonly extraValidatorNames = computed(() => [...new Set([...this.appValidators().map((v) => v.name), ...this.settings().customValidators])]);
+  readonly completionEnv = computed<CompletionEnv>(() => ({ doc: this.doc(), catalog: this.catalog(), functions: this.appFunctions() }));
   readonly issues = computed<Issue[]>(() =>
-    checkDocument(this.doc(), { customValidators: this.settings().customValidators, catalog: this.catalog() }),
+    checkDocument(this.doc(), { customValidators: this.extraValidatorNames(), catalog: this.catalog(), appValidators: this.appValidators() }),
   );
+
+  validatorInfo(name: string): ValidatorInfo | undefined {
+    return this.validators().find((v) => v.name === name);
+  }
   readonly errorCount = computed(() => this.issues().filter((i) => i.severity === 'error').length);
 
   constructor() {

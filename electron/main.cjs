@@ -157,7 +157,7 @@ const menu = Menu.buildFromTemplate([
       { label: '&Save', accelerator: 'CmdOrCtrl+S', click: sendMenu('save') },
       { label: 'Save &As…', accelerator: 'CmdOrCtrl+Shift+S', click: sendMenu('saveAs') },
       { type: 'separator' },
-      { label: 'Add &model source (Breeze, TS, C#)…', accelerator: 'CmdOrCtrl+M', click: sendMenu('addSource') },
+      { label: 'Add &source (Breeze, TS, C#)…', accelerator: 'CmdOrCtrl+M', click: sendMenu('addSource') },
       { label: '&Reload model sources', accelerator: 'F5', click: sendMenu('reloadSources') },
       { type: 'separator' },
       { role: 'quit' },

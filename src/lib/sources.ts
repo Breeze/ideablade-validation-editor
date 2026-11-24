@@ -1,6 +1,7 @@
-// Model sources: files that describe the shape of the models the metadata has rules for, so the editor can offer
-// real model and property names instead of free text. Breeze metadata (entities), and TypeScript or C# files (view
-// models, DTOs, form models). Each is read again when it changes on disk.
+// Sources: files the editor reads to know the application. Breeze metadata (entities), and TypeScript or C# files:
+// their view models, DTOs and form models, and the application's own validators and expression functions. With them
+// the editor offers real model, property, validator and function names instead of free text. Each source is read
+// again when it changes on disk.
 
 export type SourceKind = 'breeze' | 'ts' | 'cs';
 
@@ -24,10 +25,37 @@ export interface SourceModel {
   base?: string;
 }
 
+/** A validator the application registers itself, found in a TS or C# file. */
+export interface SourceValidator {
+  name: string;
+  /** Registered as an asynchronous / synchronous validator (both when the file has both). */
+  async: boolean;
+  sync: boolean;
+  defaultMessage?: string;
+  /** Context settings its code reads: ctx.factor, context.GetValue<int>("maxLength"), ... */
+  settings: string[];
+  /** Setting types where the code says (C# GetValue<T>): 'integer', 'number', 'boolean', 'values', 'text'. */
+  settingKinds?: Record<string, string>;
+  description?: string;
+}
+
+/** A function or value the application adds to the expression scope (expressionScope, AddExpressionFunction). */
+export interface SourceFunction {
+  name: string;
+  /** Parameters, for a function; undefined for a value. */
+  params?: string[];
+  returns?: string;
+  description?: string;
+  /** Set by the editor: the file it's from. */
+  sourceFile?: string;
+}
+
 export interface ModelSource {
   path: string;
   kind: SourceKind;
   models: SourceModel[];
+  validators?: SourceValidator[];
+  functions?: SourceFunction[];
   error?: string;
   loadedAt: number;
 }
@@ -59,17 +87,17 @@ export function parseSource(
   path: string,
   text: string,
   options: SourceOptions,
-  parsed?: { models?: SourceModel[]; parseError?: string },
+  parsed?: { models?: SourceModel[]; validators?: SourceValidator[]; functions?: SourceFunction[]; parseError?: string },
 ): ModelSource {
   const kind = sourceKindOf(path);
   try {
     if (kind === 'ts') {
       if (parsed?.parseError) throw new Error(parsed.parseError);
       if (!parsed?.models) throw new Error('TypeScript files can only be read in the desktop app.');
-      return { path, kind, models: parsed.models, loadedAt: Date.now() };
+      return { path, kind, models: parsed.models, validators: parsed.validators ?? [], functions: parsed.functions ?? [], loadedAt: Date.now() };
     }
-    const models = kind === 'cs' ? parseCSharp(text, options) : parseBreeze(text, options);
-    return { path, kind, models, loadedAt: Date.now() };
+    if (kind === 'cs') return { path, kind, models: parseCSharp(text, options), ...parseCSharpApp(text), loadedAt: Date.now() };
+    return { path, kind, models: parseBreeze(text, options), loadedAt: Date.now() };
   } catch (e) {
     return { path, kind, models: [], error: (e as Error).message, loadedAt: Date.now() };
   }
@@ -160,6 +188,7 @@ export function parseCSharp(text: string, options: SourceOptions): SourceModel[]
     /\b(class|record\s+struct|record\s+class|record|struct)\s+([A-Za-z_]\w*)\s*(<[^>{(]*>)?\s*(\(([^)]*)\))?\s*(?::\s*([^{;]+?))?\s*(?:where\s[^{;]*)?([{;])/g;
   for (const match of code.matchAll(declaration)) {
     const [, keyword, typeName, , , parameters, baseList, terminator] = match;
+    if (/^\s*(Validator|SyncValidator|AsyncValidator)\b/.test(baseList ?? '')) continue; // read as a validator (parseCSharpApp)
     const start = match.index!;
     const prefix = code.slice(Math.max(0, start - 80), start);
     if (/\b(private|protected|static)\s+(\w+\s+)*$/.test(prefix) && !/\bpublic\b/.test(prefix.split(/[;{}]/).pop() ?? '')) continue;
@@ -204,6 +233,101 @@ export function parseCSharp(text: string, options: SourceOptions): SourceModel[]
     });
   }
   return models;
+}
+
+const CS_STANDARD_CONTEXT_KEYS = new Set(['model', 'modeltype', 'propertyname', 'propertynames', 'displayname', 'messagetemplate', 'value', 'validatorname', 'isclient', 'isserver', 'exception']);
+
+function settingKind(clrType: string | undefined, many: boolean): string {
+  if (many) return 'values';
+  switch ((clrType ?? '').replace(/\?$/, '').replace(/^System\./, '').toLowerCase()) {
+    case 'int': case 'int32': case 'long': case 'int64': case 'short': case 'byte': return 'integer';
+    case 'decimal': case 'double': case 'float': case 'single': return 'number';
+    case 'bool': case 'boolean': return 'boolean';
+    case 'string': return 'text';
+    default: return 'bound';
+  }
+}
+
+/**
+ * The application's validators and expression functions in a C# file: classes deriving from `Validator`,
+ * `SyncValidator` or `AsyncValidator` (their `base("name", ...)`, `WithMessage(context, "...")` and the settings
+ * they read with `GetValue<T>("x")`, `GetValues<T>("x")` or `context["x"]`), `new ValidatorFactory("name", ...)`
+ * registrations, and `AddExpressionFunction("name", ...)`.
+ */
+export function parseCSharpApp(text: string): { validators: SourceValidator[]; functions: SourceFunction[] } {
+  const code = blankCommentsAndStrings(text); // for structure; strings and comments are read from `text`
+  const withStrings = text.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
+  const validators: SourceValidator[] = [];
+  const functions: SourceFunction[] = [];
+  const classes = new Map<string, SourceValidator>();
+
+  for (const match of code.matchAll(/\bclass\s+([A-Za-z_]\w*)[^{;]*?:\s*(Validator|SyncValidator|AsyncValidator)\b[^{]*\{/g)) {
+    const start = match.index! + match[0].length - 1;
+    const body = withStrings.slice(start, findClose(code, start));
+    const settings = new Map<string, string>();
+    for (const s of body.matchAll(/\bGetValue(s)?\s*(?:<([^>]+)>)?\s*\(\s*"([^"]+)"/g)) settings.set(s[3], settingKind(s[2], !!s[1]));
+    for (const s of body.matchAll(/\b(?:context|ctx|Context)\s*\[\s*"([^"]+)"\s*\]/g)) if (!settings.has(s[1])) settings.set(s[1], 'bound');
+    const keys = [...settings.keys()].filter((k) => !CS_STANDARD_CONTEXT_KEYS.has(k.toLowerCase()));
+    classes.set(match[1], {
+      name: /\bbase\s*\(\s*"([^"]+)"/.exec(body)?.[1] ?? '',
+      async: match[2] === 'AsyncValidator',
+      sync: match[2] !== 'AsyncValidator',
+      defaultMessage: /\bWithMessage\s*\([^,]*,\s*"((?:[^"\\]|\\.)*)"/.exec(body)?.[1],
+      settings: keys,
+      settingKinds: Object.fromEntries(keys.map((k) => [k, settings.get(k)!])),
+      description: xmlSummaryBefore(text, match.index!),
+    });
+  }
+
+  const add = (v: SourceValidator) => {
+    if (!v.name) return;
+    const existing = validators.find((x) => x.name === v.name);
+    if (!existing) validators.push({ ...v });
+    else {
+      existing.async ||= v.async;
+      existing.sync ||= v.sync;
+      existing.defaultMessage ??= v.defaultMessage;
+      existing.settings = [...new Set([...existing.settings, ...v.settings])];
+      existing.settingKinds = { ...v.settingKinds, ...existing.settingKinds };
+    }
+  };
+  for (const f of withStrings.matchAll(/\bnew\s+ValidatorFactory\s*\(\s*"([^"]+)"\s*,([^;]*)/g)) {
+    const cls = classes.get(/\bnew\s+([A-Za-z_]\w*)/.exec(f[2])?.[1] ?? '');
+    add({ ...(cls ?? { async: false, sync: true, settings: [] }), name: f[1] });
+  }
+  for (const cls of classes.values()) add(cls);
+
+  for (const f of withStrings.matchAll(/\bAddExpressionFunction\s*\(\s*"([^"]+)"\s*,\s*([^;]*)/g)) {
+    const func = /\(\s*(?:Func|System\.Func)\s*<([^>]*(?:<[^>]*>[^>]*)*)>\s*\)/.exec(f[2]);
+    const lambda = /\(?\s*([\w\s,<>?]*?)\)?\s*=>/.exec(f[2]);
+    let params: string[] = [];
+    let returns: string | undefined;
+    if (func) {
+      const types = splitTopLevel(func[1], ',').map((t) => t.trim());
+      returns = types.pop();
+      const names = lambda ? lambda[1].split(',').map((n) => n.trim().split(/\s+/).pop()!).filter(Boolean) : [];
+      params = types.map((t, i) => (names[i] ? `${names[i]}: ${t}` : t));
+    } else if (lambda) {
+      params = lambda[1].split(',').map((p) => p.trim()).filter(Boolean);
+    }
+    functions.push({ name: f[1], params, returns, description: 'AddExpressionFunction' });
+  }
+  return { validators, functions };
+}
+
+/** The `/// <summary>` just above a declaration, as plain text. */
+function xmlSummaryBefore(text: string, index: number): string | undefined {
+  const lines = text.slice(0, index).split('\n');
+  lines.pop();
+  const doc: string[] = [];
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (line.startsWith('///')) doc.unshift(line.slice(3).trim());
+    else if (line.startsWith('[') || line === '') continue;
+    else break;
+  }
+  const summary = /<summary>([\s\S]*?)<\/summary>/.exec(doc.join(' '))?.[1];
+  return summary?.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() || undefined;
 }
 
 /** Replaces comments and string contents with spaces, keeping offsets, so braces in them don't count. */
@@ -315,4 +439,36 @@ export function buildCatalog(sources: readonly ModelSource[]): Catalog {
 
 export function fileName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
+}
+
+/** The application's validators from all sources, merged by name. */
+export function appValidators(sources: readonly ModelSource[]): (SourceValidator & { sourceFile: string })[] {
+  const result: (SourceValidator & { sourceFile: string })[] = [];
+  for (const source of sources) {
+    for (const v of source.validators ?? []) {
+      const existing = result.find((x) => x.name === v.name);
+      if (!existing) result.push({ ...v, sourceFile: fileName(source.path) });
+      else {
+        existing.async ||= v.async;
+        existing.sync ||= v.sync;
+        existing.defaultMessage ??= v.defaultMessage;
+        existing.description ??= v.description;
+        existing.settings = [...new Set([...existing.settings, ...v.settings])];
+        existing.settingKinds = { ...v.settingKinds, ...existing.settingKinds };
+        if (!existing.sourceFile.includes(fileName(source.path))) existing.sourceFile += `, ${fileName(source.path)}`;
+      }
+    }
+  }
+  return result.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** The application's expression functions and values from all sources. */
+export function appFunctions(sources: readonly ModelSource[]): SourceFunction[] {
+  const result: SourceFunction[] = [];
+  for (const source of sources) {
+    for (const f of source.functions ?? []) {
+      if (!result.some((x) => x.name === f.name)) result.push({ ...f, sourceFile: fileName(source.path) });
+    }
+  }
+  return result;
 }

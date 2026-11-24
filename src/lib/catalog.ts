@@ -1,6 +1,9 @@
-// The built-in validators and their context settings, from the library's docs/validators.md.
+// The validators the editor offers: the built-in ones and their context settings (from the library's
+// docs/validators.md), the application's own (found in the TS / C# sources), and names listed in the settings.
 
-export type SettingKind = 'boolean' | 'integer' | 'text' | 'bound' | 'expression' | 'property' | 'op' | 'values' | 'regex';
+import type { SourceValidator } from './sources';
+
+export type SettingKind = 'boolean' | 'integer' | 'text' | 'bound' | 'expression' | 'property' | 'op' | 'values' | 'regex' | 'flags';
 
 export interface SettingInfo {
   key: string;
@@ -14,8 +17,11 @@ export interface ValidatorInfo {
   description: string;
   defaultMessage?: string;
   settings: SettingInfo[];
-  /** Validators that only make sense at model level, or that take the property value. Informational. */
-  modelLevel?: boolean;
+  /** Where it comes from: 'built-in', a source file name, or 'settings'. */
+  origin?: string;
+  /** For the application's validators: registered as async / sync. */
+  async?: boolean;
+  sync?: boolean;
 }
 
 const rangeSettings: SettingInfo[] = [
@@ -34,7 +40,7 @@ export const BUILT_IN_VALIDATORS: ValidatorInfo[] = [
     defaultMessage: "%displayName% '%value%' does not match the required format",
     settings: [
       { key: 'expression', kind: 'regex', label: 'pattern', help: 'pattern source, or "/source/flags"' },
-      { key: 'flags', kind: 'text' },
+      { key: 'flags', kind: 'flags', help: 'regular expression flags' },
     ],
   },
   { name: 'email', description: 'An email address.', settings: [] },
@@ -92,4 +98,27 @@ export const COMMON_SETTINGS: SettingInfo[] = [
 
 export function validatorInfo(name: string): ValidatorInfo | undefined {
   return BUILT_IN_VALIDATORS.find((v) => v.name === name);
+}
+
+const SETTING_KINDS: Record<string, SettingKind> = { integer: 'integer', number: 'bound', boolean: 'boolean', values: 'values', text: 'text', bound: 'bound' };
+
+/** Every validator the editor knows: built-in, the application's (from the sources), and those named in the settings. */
+export function validatorCatalog(app: readonly (SourceValidator & { sourceFile?: string })[], customNames: readonly string[]): ValidatorInfo[] {
+  const list: ValidatorInfo[] = BUILT_IN_VALIDATORS.map((v) => ({ ...v, origin: 'built-in' }));
+  for (const v of app) {
+    if (list.some((x) => x.name === v.name)) continue;
+    list.push({
+      name: v.name,
+      description: [v.description, `From ${v.sourceFile ?? 'a source file'}${v.async && !v.sync ? ' (async)' : ''}.`].filter(Boolean).join(' '),
+      defaultMessage: v.defaultMessage,
+      settings: v.settings.map((key) => ({ key, kind: SETTING_KINDS[v.settingKinds?.[key] ?? 'bound'] ?? 'bound', help: 'read by the validator' })),
+      origin: v.sourceFile,
+      async: v.async,
+      sync: v.sync,
+    });
+  }
+  for (const name of customNames) {
+    if (!list.some((x) => x.name === name)) list.push({ name, description: 'Listed under Settings → Custom validators.', settings: [], origin: 'settings' });
+  }
+  return list;
 }

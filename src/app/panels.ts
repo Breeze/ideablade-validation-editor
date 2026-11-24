@@ -183,7 +183,7 @@ export class TesterPanel {
 
   run(): void {
     this.result.set(
-      runTest(this.store.doc(), this.modelType(), this.sample(), this.storeText(), this.store.settings().customValidators, this.store.catalog()),
+      runTest(this.store.doc(), this.modelType(), this.sample(), this.storeText(), this.store.extraValidatorNames(), this.store.catalog()),
     );
   }
 }

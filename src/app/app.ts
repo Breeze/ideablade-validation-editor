@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 
-import { fileName } from '../lib/sources';
+import { type ModelSource, fileName } from '../lib/sources';
 import { EditorStore } from './editor-store';
 import { host } from './host';
 import { uniqueId } from './inline-issues';
@@ -20,7 +20,7 @@ type Pane = 'json' | 'issues' | 'test';
       <button (click)="store.save()" title="Ctrl+S" [class.primary]="store.dirty()">Save</button>
       <button (click)="store.saveAs()" title="Ctrl+Shift+S">Save as…</button>
       <span class="sep"></span>
-      <button (click)="store.addSources()" title="Ctrl+M">Add model source…</button>
+      <button (click)="store.addSources()" title="Ctrl+M">Add source…</button>
       <button (click)="store.reloadSources()" [disabled]="!store.sources().length" title="F5">Reload sources</button>
       <span class="spacer"></span>
       <span class="file" [title]="store.filePath() ?? ''">{{ store.dirty() ? '● ' : '' }}{{ store.filePath() ?? 'Untitled' }}</span>
@@ -52,7 +52,7 @@ type Pane = 'json' | 'issues' | 'test';
           <button (click)="addModel()" [disabled]="!newModel().trim()">Add</button>
         </div>
 
-        <div class="nav-title">Model sources <span class="count">{{ store.sources().length }}</span></div>
+        <div class="nav-title">Sources <span class="count">{{ store.sources().length }}</span></div>
         @for (s of store.sources(); track s.path) {
           <div class="source" [class.failed]="!!s.error" [title]="s.path">
             <span class="badge kind">{{ s.kind === 'breeze' ? 'Breeze' : s.kind === 'ts' ? 'TS' : 'C#' }}</span>
@@ -61,15 +61,15 @@ type Pane = 'json' | 'issues' | 'test';
             <button class="icon" title="Remove source" (click)="store.removeSource(s.path)">✕</button>
             <div class="source-detail">
               @if (s.error) { <span class="error-text">{{ s.error }}</span> }
-              @else { {{ s.models.length }} type{{ s.models.length === 1 ? '' : 's' }} · read {{ time(s.loadedAt) }} · watched }
+              @else { {{ sourceSummary(s) }} · read {{ time(s.loadedAt) }} · watched }
             </div>
           </div>
         } @empty {
-          <div class="hint">Add Breeze metadata, or TypeScript / C# files with view models and DTOs, to pick model types and properties from them. They're re-read when they change.</div>
+          <div class="hint">Add Breeze metadata, or TypeScript / C# files with view models, DTOs and the app's own validators and expression functions, to pick them from lists. They're re-read when they change.</div>
         }
 
         <div class="nav-title">Settings</div>
-        <label class="setting">Custom validators <small>(registered by the app; comma-separated)</small>
+        <label class="setting">Other validators <small>(the app registers them, but they're in no source file; comma-separated)</small>
           <input [value]="store.settings().customValidators.join(', ')" placeholder="e.g. loginAvailable" (change)="setCustom($any($event.target).value)" />
         </label>
         <label class="setting check">
@@ -184,6 +184,15 @@ export class App {
 
   setCustom(text: string): void {
     this.store.updateSettings({ customValidators: text.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean) });
+  }
+
+  sourceSummary(s: ModelSource): string {
+    const count = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+    return [
+      count(s.models.length, 'type'),
+      s.validators?.length ? count(s.validators.length, 'validator') : '',
+      s.functions?.length ? count(s.functions.length, 'function') : '',
+    ].filter(Boolean).join(' · ');
   }
 
   time(ms: number): string {

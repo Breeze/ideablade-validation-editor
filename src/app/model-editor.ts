@@ -5,6 +5,8 @@ import { fileName } from '../lib/sources';
 import { EditorStore } from './editor-store';
 import { InlineIssues, commentText, commentValue, uniqueId } from './inline-issues';
 import { RuleList } from './rule-list';
+import { ExpressionInput } from './expression-input';
+import type { ExpressionSite } from '../lib/completion';
 
 /** One property entry: from, displayName, the shorthands, its rules. */
 @Component({
@@ -121,7 +123,7 @@ export class PropertyEditor {
 @Component({
   selector: 'app-model-editor',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [InlineIssues, RuleList, PropertyEditor],
+  imports: [InlineIssues, RuleList, PropertyEditor, ExpressionInput],
   template: `
     <div class="model-head">
       <input class="model-name" [value]="name()" (change)="store.renameModel(name(), $any($event.target).value)" title="Model type name" />
@@ -145,9 +147,11 @@ export class PropertyEditor {
         </datalist>
       </div>
       <app-inline-issues [path]="at('extends')" />
-      <label>Condition <small>(entity store validation skips models where this is falsy)</small>
-        <textarea class="code" rows="1" [value]="entry().condition ?? ''" placeholder="e.g. !model.isTerminated" (input)="set('condition', $any($event.target).value || undefined)"></textarea>
-      </label>
+      <div class="field">
+        <span class="field-label">Condition <small>(entity store validation skips models where this is falsy)</small></span>
+        <app-expression-input [value]="entry().condition ?? ''" [site]="conditionSite()" placeholder="e.g. !model.isTerminated"
+          (changed)="set('condition', $event || undefined)" />
+      </div>
       <app-inline-issues [path]="at('condition')" />
       <label>$comment
         <textarea class="comment" rows="2" [value]="comment()" (change)="set('$comment', commentValue($any($event.target).value))"></textarea>
@@ -193,6 +197,7 @@ export class ModelEditor {
   readonly catalogModel = computed(() => this.store.catalog().get(this.name()));
   readonly sourceNames = computed(() => this.catalogModel()?.sources.map(fileName).join(', ') ?? '');
   readonly otherTypes = computed(() => this.store.allModelTypes().filter((t) => t !== this.name()));
+  readonly conditionSite = computed<ExpressionSite>(() => ({ kind: 'modelCondition', modelType: this.name() }));
   readonly availableProperties = computed(() => {
     const present = new Set(this.propertyNames());
     return (this.catalogModel()?.properties ?? []).filter((p) => !present.has(p.name) && !p.navigation);

@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import breezeMetadata from '../../samples/temphire.breeze-metadata.json';
 import tempHireMetadata from '../../samples/temphire.validation.metadata.json';
-import { checkDocument } from './check';
+import { checkDocument, checkRegexFlags } from './check';
+import { complete, typeFromText } from './completion';
 import { type MetadataDoc, lineOfPath, setIn, stringify } from './doc';
-import { buildCatalog, camelCase, parseBreeze, parseCSharp, parseSource } from './sources';
+import { buildCatalog, camelCase, parseBreeze, parseCSharp, parseCSharpApp, parseSource } from './sources';
 import { runTest } from './tester';
 
 const options = { camelCase: true };
@@ -127,5 +128,96 @@ describe('doc helpers', () => {
   it('finds the line of a path in the formatted JSON', () => {
     const text = stringify({ A: { validators: ['x', { name: 'y' }] } });
     expect(text.split('\n')[lineOfPath(text, ['A', 'validators', 1])! - 1].trim()).toBe('{');
+  });
+});
+
+describe('expression completion', () => {
+  const env = { doc, catalog, functions: [{ name: 'isWeekend', params: ['d: Date'], returns: 'boolean', sourceFile: 'scope.ts' }] };
+  const names = (text: string, site: Parameters<typeof complete>[2], pos = text.length) =>
+    complete(text, pos, site, env)?.options.map((o) => o.name) ?? [];
+  const property = { kind: 'validatorCondition' as const, modelType: 'StaffingResource', propertyName: 'hireDate' };
+
+  it('offers the variables of each kind of expression', () => {
+    expect(names('', property)).toEqual(expect.arrayContaining(['model', 'value', 'context', 'isClient', 'store', 'isWeekend', 'Math']));
+    const model = names('', { kind: 'modelCondition', modelType: 'StaffingResource' });
+    expect(model).toEqual(expect.arrayContaining(['entityInfos', 'findEntity']));
+    expect(model).not.toContain('value');
+  });
+
+  it("offers the model's properties, and members of their types", () => {
+    expect(names('model.', property)).toEqual(expect.arrayContaining(['firstName', 'hireDate', 'addresses']));
+    expect(names('model.firstName.', property)).toEqual(expect.arrayContaining(['length', 'trim', 'startsWith']));
+    expect(names('value.', property)).toContain('getFullYear');
+    expect(names('model.addresses.', property)).toEqual(expect.arrayContaining(['some', 'filter', 'length']));
+  });
+
+  it("knows store('Type') and callback parameters", () => {
+    expect(names("store('Add", property)).toContain('Address');
+    expect(names("store('Address').some(a => a.", property)).toEqual(expect.arrayContaining(['staffingResourceId', 'city']));
+    expect(names('model.addresses.filter(x => x.city.', property)).toContain('toUpperCase');
+  });
+
+  it('offers what the context always has, plus the rule settings', () => {
+    const context = names('context.', { ...property, contextKeys: ['minValue'] });
+    expect(context).toEqual(expect.arrayContaining(['model', 'modelType', 'propertyName', 'displayName', 'isServer', 'minValue']));
+    expect(names('context.', { kind: 'validatorCondition', modelType: 'StaffingResource' })).toContain('propertyNames');
+  });
+
+  it('offers the globals, and nothing where an operator comes next', () => {
+    expect(names('Math.', property)).toEqual(expect.arrayContaining(['max', 'round', 'PI']));
+    expect(names('Date.', property)).toEqual(['now', 'parse', 'UTC']);
+    expect(names('new Date().', property)).toContain('getTime');
+    expect(complete('model ', 6, property, env)).toBeNull();
+    expect(complete("'abc", 4, property, env)).toBeNull();
+  });
+
+  it('reads TypeScript and C# property types', () => {
+    expect(typeFromText('string | null', catalog)).toEqual({ k: 'string' });
+    expect(typeFromText('DateTime?', catalog)).toEqual({ k: 'date' });
+    expect(typeFromText('List<Address>', catalog)).toEqual({ k: 'array', of: { k: 'model', name: 'Address' } });
+    expect(typeFromText('Int32', catalog)).toEqual({ k: 'number' });
+  });
+});
+
+describe("the app's validators and functions", () => {
+  it('reads C# validators, the settings they read, and expression functions', () => {
+    const { validators, functions } = parseCSharpApp(`
+      /// <summary>A multiple of factor.</summary>
+      public sealed class MultipleOfValidator : Validator
+      {
+          public MultipleOfValidator(string? group, ValidationContextBase? context)
+              : base("multipleOf", group, WithMessage(context, "%displayName% must be a multiple of %factor%")) { }
+          protected override bool ValidateCore(object? value, ValidatorFunctionContext context) =>
+              value is null || Convert.ToDecimal(value) % context.GetValue<decimal>("factor") == 0
+                  && !context.GetValue<bool>("strict") && context.GetValues<string>("excluded").Any() && context.GetValue<string>("displayName") != null;
+      }
+      public class LoginAvailable : AsyncValidator { public LoginAvailable(string? g, ValidationContextBase? c) : base("loginAvailable", g, c) { } }
+      services.AddIdeaBladeValidation(v => v
+          .AddValidators(new ValidatorFactory("multipleOf", (g, c) => new MultipleOfValidator(g, c)))
+          .AddExpressionFunction("isWeekend", (Func<DateTime, bool>)(d => d.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)));
+    `);
+    const multipleOf = validators.find((v) => v.name === 'multipleOf')!;
+    expect(multipleOf).toMatchObject({ sync: true, async: false, defaultMessage: '%displayName% must be a multiple of %factor%', description: 'A multiple of factor.' });
+    expect(multipleOf.settings).toEqual(['factor', 'strict', 'excluded']);
+    expect(multipleOf.settingKinds).toEqual({ factor: 'number', strict: 'boolean', excluded: 'values' });
+    expect(validators.find((v) => v.name === 'loginAvailable')).toMatchObject({ async: true, sync: false });
+    expect(functions).toEqual([{ name: 'isWeekend', params: ['d: DateTime'], returns: 'bool', description: 'AddExpressionFunction' }]);
+    // A validator class is not a model.
+    expect(parseCSharp('public sealed class EvenValidator : Validator { public int Factor { get; set; } }', options)).toEqual([]);
+  });
+
+  it('counts them as known, and checks async against how they are registered', () => {
+    const app = [{ name: 'loginAvailable', async: true, sync: false, settings: [], sourceFile: 'Login.cs' }];
+    const changed = setIn(doc, ['Address', 'properties', 'city', 'validators'], ['loginAvailable']) as MetadataDoc;
+    const issues = checkDocument(changed, { customValidators: ['loginAvailable'], catalog, appValidators: app }).filter((i) => i.severity === 'error');
+    expect(issues.map((i) => i.message)).toEqual([expect.stringContaining('registered as an asynchronous validator')]);
+  });
+
+  it('checks regular expression flags', () => {
+    expect(checkRegexFlags('im')).toEqual([]);
+    expect(checkRegexFlags('ix').map((p) => p.severity)).toEqual(['error']);
+    expect(checkRegexFlags('gi').map((p) => p.severity)).toEqual(['warning']);
+    const changed = setIn(doc, ['Address', 'properties', 'city', 'validators'], [{ name: 'pattern', context: { expression: '/^[a-z]+$/q' } }]) as MetadataDoc;
+    expect(errors(changed)[0]).toMatchObject({ path: ['Address', 'properties', 'city', 'validators', 0, 'context', 'expression'] });
   });
 });

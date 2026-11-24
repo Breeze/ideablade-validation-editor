@@ -1,4 +1,4 @@
-import type { SourceModel } from '../lib/sources';
+import type { SourceFunction, SourceModel, SourceValidator } from '../lib/sources';
 
 // What the Electron preload script (electron/preload.cjs) exposes as `window.editorHost`.
 
@@ -7,6 +7,8 @@ export interface OpenedFile {
   text: string;
   /** For a TypeScript file: its models, read by the main process (electron/typescript-models.cjs). */
   models?: SourceModel[];
+  validators?: SourceValidator[];
+  functions?: SourceFunction[];
   parseError?: string;
 }
 
@@ -15,6 +17,8 @@ export interface SourceChange {
   text?: string;
   error?: string;
   models?: SourceModel[];
+  validators?: SourceValidator[];
+  functions?: SourceFunction[];
   parseError?: string;
 }
 
