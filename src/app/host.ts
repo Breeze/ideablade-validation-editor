@@ -1,3 +1,4 @@
+import type { ThemeSetting } from './theme';
 import type { JsonObject } from '../lib/doc';
 import type { SourceFunction, SourceModel, SourceValidator } from '../lib/sources';
 
@@ -53,6 +54,8 @@ export interface EditorHost {
   onSourceChanged(handler: (change: SourceChange) => void): () => void;
   startupArgs(): Promise<StartupArgs>;
   setTitle(title: string): void;
+  /** The native theme (window frame, menus, dialogs), and what prefers-color-scheme reports for "system". */
+  setTheme(theme: ThemeSetting): void;
   close(): void;
   onMenu(handler: (command: string) => void): () => void;
   onCloseRequested(handler: () => void): () => void;
@@ -83,6 +86,7 @@ const browserHost: EditorHost = {
   onSourceChanged: () => () => {},
   startupArgs: async () => ({ files: [], sources: [] }),
   setTitle: (title) => (document.title = title),
+  setTheme: () => {},
   close: () => window.close(),
   onMenu: () => () => {},
   onCloseRequested: () => () => {},

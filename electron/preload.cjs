@@ -17,7 +17,9 @@ contextBridge.exposeInMainWorld('editorHost', {
     ipcRenderer.on('source:changed', listener);
     return () => ipcRenderer.removeListener('source:changed', listener);
   },
-  startupArgs: () => ipcRenderer.invoke('app:startup-args'),  setTitle: (title) => ipcRenderer.send('app:set-title', title),
+  startupArgs: () => ipcRenderer.invoke('app:startup-args'),
+  setTitle: (title) => ipcRenderer.send('app:set-title', title),
+  setTheme: (theme) => ipcRenderer.send('app:set-theme', theme),
   close: () => ipcRenderer.send('app:close'),
   onMenu: (handler) => {
     const listener = (_e, command) => handler(command);

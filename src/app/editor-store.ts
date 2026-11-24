@@ -21,6 +21,7 @@ import {
 } from '../lib/doc';
 import { type ModelSource, appFunctions, appValidators, buildCatalog, fileName, parseSource } from '../lib/sources';
 import { host } from './host';
+import type { ThemeSetting } from './theme';
 
 /** Where a document is kept: a JSON file, or a metadata map in a TypeScript or C# file. */
 export type DocFormat = 'json' | 'ts' | 'cs';
@@ -118,6 +119,7 @@ const EMPTY: MetadataDoc = {};
 interface Settings {
   customValidators: string[];
   camelCase: boolean;
+  theme: ThemeSetting;
 }
 
 /**
@@ -535,7 +537,7 @@ export class EditorStore {
 }
 
 function loadSettings(): Settings {
-  const defaults: Settings = { customValidators: [], camelCase: true };
+  const defaults: Settings = { customValidators: [], camelCase: true, theme: 'dark' };
   try {
     return { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') };
   } catch {

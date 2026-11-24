@@ -1,5 +1,5 @@
 // Electron main process: one window, plus file dialogs and file I/O for the renderer (see preload.cjs).
-const { app, BrowserWindow, dialog, ipcMain, Menu } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { withTypeScriptModels } = require('./typescript-models.cjs');
@@ -12,6 +12,7 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1500,
     height: 950,
+    backgroundColor: '#1e1e1e', // the default dark theme, until the renderer says otherwise (no white flash)
     title: 'IdeaBlade Validation Editor',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -144,6 +145,12 @@ ipcMain.handle('file:open-source', async () => {
 });
 
 ipcMain.on('app:set-title', (_e, title) => win.setTitle(title));
+
+// The renderer's theme setting (dark, light or system): the window frame, menus and dialogs follow it.
+ipcMain.on('app:set-theme', (_e, theme) => {
+  nativeTheme.themeSource = ['dark', 'light', 'system'].includes(theme) ? theme : 'dark';
+  win.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1e1e1e' : '#f6f7f9');
+});
 
 // A file passed on the command line (e.g. through the "Open with" file association).
 // Command line: metadata files to open (JSON, TS or C#), and sources to load with them:

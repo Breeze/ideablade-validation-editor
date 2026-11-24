@@ -37,6 +37,7 @@ A desktop editor for [IdeaBlade Validation](https://github.com/Breeze/ideablade-
   - **Sources:** properties, `propertyNames` and `compare`'s `other` that the model doesn't have.
 - **JSON view** next to the forms, kept in step both ways. JSON that doesn't parse isn't applied; the forms keep the last valid state until it parses again.
 - **Try it:** validate a sample object against the metadata as it is now, with the library's real service. You can give it a store (entities by type) for `store('Type')` expressions. Validators the editor doesn't have (`breeze`, custom ones) pass, and async validators don't run.
+- **Dark theme** by default, with VS Code's Dark+ colours, also for the code in expressions. Settings → Theme switches to Light, or to Follow Windows; the window frame, menus and dialogs follow.
 
 | Several files: JSON and TS side by side | Code completion in an expression | The application's own validators |
 |---|---|---|

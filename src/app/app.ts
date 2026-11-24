@@ -4,6 +4,7 @@ import { modelKeys } from '../lib/doc';
 import { type ModelSource, fileName } from '../lib/sources';
 import { EditorStore, FORMAT_LABELS, type MetadataDocument } from './editor-store';
 import { host } from './host';
+import { THEME_LABELS, type ThemeSetting, applyTheme, onSystemThemeChange } from './theme';
 import { uniqueId } from './inline-issues';
 import { ModelEditor } from './model-editor';
 import { DocumentEditor, IssuesPanel, JsonView, TesterPanel } from './panels';
@@ -101,6 +102,11 @@ interface Counts {
           <input type="checkbox" [checked]="store.settings().camelCase" (change)="store.updateSettings({ camelCase: $any($event.target).checked })" />
           camelCase server names (Breeze nameOnServer, C#)
         </label>
+        <label class="setting">Theme
+          <select (change)="store.updateSettings({ theme: $any($event.target).value })">
+            @for (t of themes; track t) { <option [value]="t" [selected]="store.settings().theme === t">{{ themeLabels[t] }}</option> }
+          </select>
+        </label>
       </nav>
 
       <main class="main">
@@ -142,7 +148,7 @@ interface Counts {
       <span class="spacer"></span>
       <span>{{ store.documents().length }} metadata {{ store.documents().length === 1 ? 'map' : 'maps' }} · {{ store.metadataTypes().length }} model types ·
         {{ store.catalog().size }} known from sources ·
-        @if (store.errorCount()) { <span class="error-text">{{ store.errorCount() }} errors</span> } @else { no errors }</span>
+        @if (store.errorCount()) { <span class="error-text">{{ store.errorCount() }} {{ store.errorCount() === 1 ? 'error' : 'errors' }}</span> } @else { no errors }</span>
     </footer>
   `,
 })
@@ -153,6 +159,8 @@ export class App {
   readonly typesListId = uniqueId('model-types');
   readonly fileName = fileName;
   readonly formatLabels = FORMAT_LABELS;
+  readonly themes: ThemeSetting[] = ['dark', 'light', 'system'];
+  readonly themeLabels = THEME_LABELS;
 
   readonly selectedModel = computed(() => {
     const s = this.store.selection();
@@ -166,6 +174,13 @@ export class App {
 
   constructor() {
     effect(() => host.setTitle(this.store.title()));
+    // The colour theme: <html data-theme>, and Electron's native theme for the window frame, menus and dialogs.
+    effect(() => {
+      const theme = this.store.settings().theme;
+      host.setTheme(theme);
+      applyTheme(theme);
+    });
+    onSystemThemeChange(() => applyTheme(this.store.settings().theme));
     // Clicking an issue shows it in the JSON view.
     effect(() => {
       if (this.store.focusPath()) this.pane.set('json');
