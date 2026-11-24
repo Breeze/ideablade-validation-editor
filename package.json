@@ -1,0 +1,64 @@
+{
+  "name": "ideablade-validation-editor",
+  "productName": "IdeaBlade Validation Editor",
+  "version": "0.1.0",
+  "description": "Desktop editor for IdeaBlade Validation's JSON validation metadata.",
+  "private": true,
+  "license": "MIT",
+  "author": "IdeaBlade",
+  "main": "electron/main.cjs",
+  "engines": {
+    "node": ">=26.13"
+  },
+  "scripts": {
+    "ng": "ng",
+    "prebuild": "node scripts/build-schema-validator.mjs",
+    "build": "ng build",
+    "start": "npm run build && electron .",
+    "dev": "node scripts/build-schema-validator.mjs && node scripts/dev.mjs",
+    "test": "node scripts/build-schema-validator.mjs && ng test --watch=false",
+    "dist": "npm run build && electron-builder --win nsis",
+    "dist:dir": "npm run build && electron-builder --win dir"
+  },
+  "dependencies": {
+    "typescript": "~6.0.2"
+  },
+  "devDependencies": {
+    "@angular/build": "22.3",
+    "@angular/cli": "22.3",
+    "@angular/common": "22.3",
+    "@angular/compiler": "22.3",
+    "@angular/compiler-cli": "22.3",
+    "@angular/core": "22.3",
+    "@angular/forms": "22.3",
+    "@angular/platform-browser": "22.3",
+    "ajv": "^8.20.0",
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0",
+    "ideablade-validation": "^0.1.0",
+    "jsdom": "^31.0.1",
+    "rxjs": "^7.8.2",
+    "tslib": "^2.9.1",
+    "vitest": "^5.1.1"
+  },
+  "build": {
+    "appId": "com.ideablade.validation-editor",
+    "productName": "IdeaBlade Validation Editor",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    }
+  }
+}
