@@ -63,10 +63,10 @@ Metadata files (JSON, TS or C#) and sources can be given on the command line, wh
 
 ```powershell
 npm run build
-npx electron . samples/temphire.validation.metadata.json ../temphire.angular/client/src/app/core/validation/client-validation-metadata.ts --source=samples/temphire.breeze-metadata.json --source=../temphire.angular/client/src/app/resource-mgt/resource-name-editor.component.ts
+npx electron . samples/temphire.validation.metadata.json ../temphire.angular/client/src/app/core/validation/client-validation-metadata.ts --source=samples/temphire.breeze-metadata.json --source=../temphire.angular/client/src/app/resource-mgt/resource-name-editor.component.ts --source=samples/app-validation.ts
 ```
 
-The `samples/` folder has TempHire's validation metadata and its Breeze metadata, exported from `TempHirePersistenceManager.Metadata()`.
+The `samples/` folder has TempHire's validation metadata and its Breeze metadata, exported from `TempHirePersistenceManager.Metadata()`, and `app-validation.ts`, an example of an application's own validators and expression functions as the editor reads them.
 
 ### Tests
 
