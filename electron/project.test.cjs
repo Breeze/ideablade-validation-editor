@@ -46,6 +46,15 @@ describe('the project file', () => {
     assert.ok(text.includes('\r\n'));
   });
 
+  it('keeps the values to try against pattern rules, sorted by rule, and leaves them out when there are none', () => {
+    const tests = { 'Address.zipcode': { shouldPass: ['98101'], shouldFail: ['9810'] }, 'Address.city': { shouldPass: ['Seattle'], shouldFail: [] } };
+    const base = { metadata: [], sources: [], otherValidators: [], camelCase: true };
+    const text = projectText(projectPath, { ...base, regexTests: tests });
+    assert.deepEqual(Object.keys(JSON.parse(text).regexTests), ['Address.city', 'Address.zipcode']);
+    assert.deepEqual(parseProject(projectPath, text).regexTests, tests);
+    assert.equal(JSON.parse(projectText(projectPath, { ...base, regexTests: {} }, text)).regexTests, undefined);
+  });
+
   it('is found in the folder of a file or above it, and round-trips', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'vep-'));
     try {

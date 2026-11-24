@@ -20,7 +20,7 @@ import {
   stringify,
 } from '../lib/doc';
 import { type ModelSource, appFunctions, appValidators, buildCatalog, fileName, parseSource } from '../lib/sources';
-import { type Project, type ProjectState, host } from './host';
+import { type Project, type ProjectState, type RegexTestSet, host } from './host';
 import type { ThemeSetting } from './theme';
 
 /** Where a document is kept: a JSON file, or a metadata map in a TypeScript or C# file. */
@@ -133,6 +133,23 @@ function sameSet(a: readonly string[], b: readonly string[]): boolean {
   const y = lower(b);
   return x.size === y.size && [...x].every((p) => y.has(p));
 }
+
+/** JSON with sorted keys, to compare objects whatever order their keys were added in. */
+function stableJson(value: unknown): string {
+  return JSON.stringify(value, (_k, v) =>
+    v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v,
+  );
+}
+
+const REGEX_TESTS_KEY = 'editor.regexTests';
+
+function loadRegexTests(): Record<string, RegexTestSet> {
+  try {
+    return JSON.parse(localStorage.getItem(REGEX_TESTS_KEY) ?? '{}');
+  } catch {
+    return {};
+  }
+}
 const EMPTY: MetadataDoc = {};
 
 interface Settings {
@@ -152,6 +169,11 @@ export class EditorStore {
   readonly selection = signal<Selection | undefined>(undefined);
   readonly sources = signal<ModelSource[]>([]);
   readonly settings = signal<Settings>(loadSettings());
+  /**
+   * Values to try against each `pattern` rule, that should pass and should fail, by rule (`Model.property`, with the
+   * group and id where there are). Kept in the project file, so the team shares them; without one, for this user.
+   */
+  readonly regexTests = signal<Record<string, RegexTestSet>>(loadRegexTests());
   /** The path of the issue last clicked, so the JSON view can scroll to it. */
   readonly focusPath = signal<Path | undefined>(undefined);
   readonly status = signal<string>('');
@@ -179,6 +201,7 @@ export class EditorStore {
       sources: this.sources().map((s) => s.path),
       otherValidators: this.settings().customValidators,
       camelCase: this.settings().camelCase,
+      regexTests: this.regexTests(),
     };
   });
   readonly projectDirty = computed(() => {
@@ -186,9 +209,26 @@ export class EditorStore {
     if (!p) return false;
     const s = this.projectState();
     return (
-      !sameSet(s.metadata, p.metadata) || !sameSet(s.sources, p.sourceFiles) || !sameSet(s.otherValidators, p.otherValidators) || s.camelCase !== p.camelCase
+      !sameSet(s.metadata, p.metadata) ||
+      !sameSet(s.sources, p.sourceFiles) ||
+      !sameSet(s.otherValidators, p.otherValidators) ||
+      s.camelCase !== p.camelCase ||
+      stableJson(s.regexTests) !== stableJson(p.regexTests ?? {})
     );
   });
+
+  /** Sets the values to try for a pattern rule (an empty set is removed). */
+  setRegexTests(key: string, tests: RegexTestSet): void {
+    const all = { ...this.regexTests() };
+    const clean: RegexTestSet = {
+      shouldPass: (tests.shouldPass ?? []).slice(),
+      shouldFail: (tests.shouldFail ?? []).slice(),
+    };
+    if (clean.shouldPass.some((v) => v !== '') || clean.shouldFail.some((v) => v !== '')) all[key] = clean;
+    else delete all[key];
+    this.regexTests.set(all);
+    if (!this.project()) localStorage.setItem(REGEX_TESTS_KEY, JSON.stringify(all));
+  }
   readonly dirty = computed(() => this.documents().some((d) => d.dirty()) || this.projectDirty());
   readonly title = computed(() => {
     const active = this.active();
@@ -452,6 +492,7 @@ export class EditorStore {
     const settings = { ...this.settings(), customValidators: project.otherValidators, camelCase: project.camelCase };
     this.settings.set(settings);
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    this.regexTests.set(project.regexTests ?? {});
   }
 
   /** The project file changed on disk (a git pull, an edit elsewhere): take it, unless there are unsaved changes. */

@@ -72,8 +72,13 @@ export function checkRegexFlags(flags: string): { severity: Severity; message: s
   const repeated = [...new Set(flags.split('').filter((f, i) => flags.indexOf(f) !== i))];
   if (repeated.length) problems.push({ severity: 'error', message: `Flag given twice: ${repeated.join(', ')}.` });
   if (flags.includes('u') && flags.includes('v')) problems.push({ severity: 'error', message: "The 'u' and 'v' flags can't be combined." });
-  if (flags.includes('g') || flags.includes('y')) {
-    problems.push({ severity: 'warning', message: "Don't use 'g' or 'y': in JavaScript they make test() remember where it stopped, so a validator that runs twice can alternate between passing and failing. .NET ignores them." });
+  // The validator starts every test from the start of the value (lastIndex = 0), so 'g' changes nothing, while 'y'
+  // pins the match to the start in the browser only.
+  if (flags.includes('g')) {
+    problems.push({ severity: 'info', message: "The 'g' flag has no effect here: the validator tests each value from its start. Leave it out." });
+  }
+  if (flags.includes('y')) {
+    problems.push({ severity: 'warning', message: "Don't use 'y': in the browser it makes the match start at the beginning of the value, but .NET ignores it, so client and server can disagree. Start the pattern with ^ instead." });
   }
   if (flags.includes('v')) problems.push({ severity: 'warning', message: "The 'v' flag is JavaScript-only; .NET doesn't know it, so client and server may match differently." });
   if (flags.includes('d')) problems.push({ severity: 'warning', message: "The 'd' flag only adds match indices; it doesn't change what matches." });
@@ -177,7 +182,7 @@ export function checkDocument(doc: MetadataDoc, options: CheckOptions): Issue[] 
             add('error', [...path, 'context', 'expression'], `The pattern is not a valid regular expression: ${(e as Error).message}`, 'library');
           }
         }
-        flagProblems.filter((p) => p.severity === 'warning').forEach((p) => add('warning', flagsPath, p.message, 'library'));
+        flagProblems.filter((p) => p.severity !== 'error').forEach((p) => add(p.severity, flagsPath, p.message, 'library'));
         if (literal && typeof context['flags'] === 'string' && context['flags']) {
           add('warning', [...path, 'context', 'flags'], "The pattern is written as /pattern/flags, so its own flags apply and context.flags is ignored.", 'library');
         }

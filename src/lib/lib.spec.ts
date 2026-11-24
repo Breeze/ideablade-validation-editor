@@ -6,6 +6,7 @@ import { checkDocument, checkRegexFlags } from './check';
 import { complete, typeFromText } from './completion';
 import { newCsMetadataFile, pascalCaseFromFile, readCsMetadata, writeCsMetadata } from './cs-metadata';
 import { type MetadataDoc, lineOfPath, mergeDocs, setIn, stringify } from './doc';
+import { COMMON_PATTERNS, analyzeRegex, splitPattern, testSamples } from './regex';
 import { buildCatalog, camelCase, parseBreeze, parseCSharp, parseCSharpApp, parseSource } from './sources';
 import { runTest } from './tester';
 
@@ -217,7 +218,8 @@ describe("the app's validators and functions", () => {
   it('checks regular expression flags', () => {
     expect(checkRegexFlags('im')).toEqual([]);
     expect(checkRegexFlags('ix').map((p) => p.severity)).toEqual(['error']);
-    expect(checkRegexFlags('gi').map((p) => p.severity)).toEqual(['warning']);
+    expect(checkRegexFlags('gi').map((p) => p.severity)).toEqual(['info']);
+    expect(checkRegexFlags('yi').map((p) => p.severity)).toEqual(['warning']);
     const changed = setIn(doc, ['Address', 'properties', 'city', 'validators'], [{ name: 'pattern', context: { expression: '/^[a-z]+$/q' } }]) as MetadataDoc;
     expect(errors(changed)[0]).toMatchObject({ path: ['Address', 'properties', 'city', 'validators', 0, 'context', 'expression'] });
   });
@@ -297,5 +299,55 @@ describe('metadata in C#', () => {
     const verbatim = 'var json = @"{ ""A"": { ""properties"": {} } }";';
     expect(readCsMetadata(verbatim)[0]).toMatchObject({ name: 'json', json: { A: { properties: {} } } });
     expect(readCsMetadata(writeCsMetadata(verbatim, 'json', { B: {} }))[0].json).toEqual({ B: {} });
+  });
+});
+
+describe('the regular expression panel', () => {
+  it('explains a pattern step by step, and each piece', () => {
+    const a = analyzeRegex('^\\d{5}(?:-\\d{4})?$');
+    expect(a.error).toBeUndefined();
+    expect(a.steps.map((s) => s.explanation)).toEqual([
+      'the start of the value',
+      'a digit (0–9), exactly 5 times',
+      "('-', then a digit (0–9), exactly 4 times), optionally",
+      'the end of the value',
+    ]);
+    const quantifier = a.tokens.find((t) => t.raw === '{5}' || t.raw === '\\d{5}');
+    expect(quantifier?.explanation).toBe('Repeats what comes before it exactly 5 times.');
+    expect(a.tokens.find((t) => t.raw === '[A-Z]')).toBeUndefined();
+    expect(analyzeRegex('[^A-Z0-9]').tokens[0].explanation).toBe('Any character except A–Z, 0–9.');
+    expect(analyzeRegex('(?<code>[A-Z]+)').tokens[0].explanation).toBe("Group 'code': one of: A–Z, one or more times.");
+  });
+
+  it('reads /source/flags, and reports where a pattern breaks', () => {
+    expect(splitPattern('/^a$/i', 'm')).toEqual({ source: '^a$', flags: 'i', literal: true });
+    expect(splitPattern('^a$', 'm')).toEqual({ source: '^a$', flags: 'm', literal: false });
+    const broken = analyzeRegex('^[A-Z');
+    expect(broken.error).toMatchObject({ index: 5 });
+    expect(broken.error!.message).toMatch(/Unterminated character class/);
+  });
+
+  it('warns about partial matches, and offers anchors', () => {
+    const [hint] = analyzeRegex('\\d{5}').hints;
+    expect(hint).toMatchObject({ severity: 'warning', fix: { pattern: '^\\d{5}$' } });
+    expect(hint.message).toContain("'x11111x'");
+    expect(analyzeRegex('a|b').hints[0].fix!.pattern).toBe('^(?:a|b)$');
+    expect(analyzeRegex('^a$').hints).toEqual([]);
+    expect(analyzeRegex('^\\d+$', 's').hints.map((h) => h.message)).toEqual([expect.stringContaining('non-ASCII digits')]);
+  });
+
+  it('tests values as the validator does, with the matched parts', () => {
+    const results = testSamples('\\d{5}', '', ['12345', 'abc12345xyz', 'abc', ''])!;
+    expect(results.map((r) => r.passes)).toEqual([true, true, false, true]);
+    expect(results[1].matches).toEqual([{ start: 3, end: 8 }]);
+    // 'g' changes nothing, as the validator starts each test from the start.
+    expect(testSamples('^a', 'g', ['a', 'a', 'a'])!.map((r) => r.passes)).toEqual([true, true, true]);
+    expect(testSamples('[', '', ['x'])).toBeUndefined();
+  });
+
+  it('offers common patterns that compile and match what they say', () => {
+    for (const p of COMMON_PATTERNS) expect(analyzeRegex(p.pattern).error, p.label).toBeUndefined();
+    const zip = COMMON_PATTERNS.find((p) => p.builtIn === 'zipCode')!;
+    expect(testSamples(zip.pattern, '', ['98101', '98101-1234', '9810'])!.map((r) => r.passes)).toEqual([true, true, false]);
   });
 });

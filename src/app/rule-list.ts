@@ -16,6 +16,7 @@ import {
 } from '../lib/doc';
 import { EditorStore } from './editor-store';
 import { ExpressionInput } from './expression-input';
+import { RegexEditor } from './regex-editor';
 import { InlineIssues, commentText, commentValue, uniqueId } from './inline-issues';
 
 /** Context settings that need something in them to be useful, so a new rule starts with them. */
@@ -46,7 +47,7 @@ function newRule(name: string): RuleEntry {
 @Component({
   selector: 'app-rule-editor',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [InlineIssues, ExpressionInput],
+  imports: [InlineIssues, ExpressionInput, RegexEditor],
   host: { class: 'rule', '[class.open]': 'open()', '[class.has-error]': 'hasError()' },
   template: `
     <div class="rule-head" (click)="open.set(!open())">
@@ -109,6 +110,13 @@ function newRule(name: string): RuleEntry {
         <fieldset>
           <legend>Context</legend>
           @for (s of settings(); track s.key) {
+            @if (s.kind === 'regex') {
+              <!-- Not in a <label>: the panel has its own fields, and a label would send clicks to the first of them. -->
+              <div class="field">
+                <span class="field-label">{{ s.label ?? s.key }} <small>(the value passes when this matches; hover a part to see what it does)</small></span>
+                <app-regex-editor [value]="$any(context()[s.key] ?? '')" [flags]="flags()" [testKey]="regexTestKey()" (changed)="setContext(s.key, $event || undefined)" />
+              </div>
+            } @else {
             <label [class.check]="s.kind === 'boolean'">
               @switch (s.kind) {
                 @case ('boolean') {
@@ -159,10 +167,11 @@ function newRule(name: string): RuleEntry {
                 }
                 @default {
                   {{ s.label ?? s.key }}
-                  <input [class.code]="s.kind === 'regex'" [value]="context()[s.key] ?? ''" [placeholder]="s.help ?? ''" (input)="setContext(s.key, $any($event.target).value || undefined)" />
+                  <input [value]="context()[s.key] ?? ''" [placeholder]="s.help ?? ''" (input)="setContext(s.key, $any($event.target).value || undefined)" />
                 }
               }
             </label>
+            }
             <app-inline-issues [path]="at('context', s.key)" />
           }
           <label>Other settings <small>(JSON object, for custom validators)</small>
@@ -219,6 +228,13 @@ export class RuleEditor {
     contextKeys: Object.keys(this.context()),
   }));
   readonly expressionSite = computed<ExpressionSite>(() => ({ ...this.conditionSite(), kind: 'expression' }));
+
+  /** Where this rule's values to try are kept: by model, property (or model-level), group and id. */
+  readonly regexTestKey = computed(() => {
+    const group = this.group();
+    const id = this.rule().id;
+    return `${this.modelType() ?? 'global'}.${this.propertyName() ?? '(model)'}${group ? '@' + group : ''}${id ? '#' + id : ''}`;
+  });
 
   readonly flags = computed(() => (typeof this.context()['flags'] === 'string' ? (this.context()['flags'] as string) : ''));
   readonly otherFlags = computed(() => [...new Set(this.flags().split(''))].filter((f) => !REGEX_FLAGS.some((r) => r.flag === f)));

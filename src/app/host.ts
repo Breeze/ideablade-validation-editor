@@ -39,6 +39,12 @@ export interface TsMetadata {
   hasComments: boolean;
 }
 
+/** Values to try against a pattern rule: ones it should accept and ones it should reject. */
+export interface RegexTestSet {
+  shouldPass: string[];
+  shouldFail: string[];
+}
+
 /** A project (*.ivproj, electron/project.cjs), with absolute paths. */
 export interface Project {
   path: string;
@@ -49,6 +55,8 @@ export interface Project {
   sourceFiles: string[];
   otherValidators: string[];
   camelCase: boolean;
+  /** Values to try against each pattern rule, by rule (see EditorStore.regexTests). */
+  regexTests?: Record<string, RegexTestSet>;
 }
 
 export interface ProjectState {
@@ -56,6 +64,7 @@ export interface ProjectState {
   sources: string[];
   otherValidators: string[];
   camelCase: boolean;
+  regexTests: Record<string, RegexTestSet>;
 }
 
 export interface EditorHost {

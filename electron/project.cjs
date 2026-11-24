@@ -53,12 +53,19 @@ function parseProject(projectPath, text) {
   if (!Array.isArray(otherValidators) || otherValidators.some((v) => typeof v !== 'string')) {
     throw new Error("'otherValidators' must be a list of validator names.");
   }
+  // Values to try against pattern rules: { "Address.zipcode": { "shouldPass": [...], "shouldFail": [...] } }.
+  const regexTests = {};
+  for (const [key, set] of Object.entries(json.regexTests ?? {})) {
+    const list = (v) => (Array.isArray(v) ? v.filter((s) => typeof s === 'string') : []);
+    if (set && typeof set === 'object') regexTests[key] = { shouldPass: list(set.shouldPass), shouldFail: list(set.shouldFail) };
+  }
   return {
     path: projectPath,
     metadata: paths('metadata'),
     sources: paths('sources'),
     otherValidators,
     camelCase: json.camelCase === undefined ? true : json.camelCase !== false,
+    regexTests,
   };
 }
 
@@ -135,6 +142,10 @@ function projectText(projectPath, project, existingText) {
     ...existing,
     ...managed,
   };
+  // The values to try against pattern rules, sorted by rule so the file diffs well; left out when there are none.
+  const tests = Object.entries(project.regexTests ?? {}).sort(([a], [b]) => a.localeCompare(b));
+  if (tests.length) json.regexTests = Object.fromEntries(tests);
+  else delete json.regexTests;
   const eol = existingText?.includes('\r\n') ? '\r\n' : '\n';
   return JSON.stringify(json, null, 2).replace(/\n/g, eol) + eol;
 }
