@@ -1,4 +1,4 @@
-import { Injectable, computed, signal } from '@angular/core';
+import { Injectable, computed, effect, signal } from '@angular/core';
 
 import { type ValidatorInfo, validatorCatalog } from '../lib/catalog';
 import { type Issue, checkDocument } from '../lib/check';
@@ -20,7 +20,7 @@ import {
   stringify,
 } from '../lib/doc';
 import { type ModelSource, appFunctions, appValidators, buildCatalog, fileName, parseSource } from '../lib/sources';
-import { host } from './host';
+import { type Project, type ProjectState, host } from './host';
 import type { ThemeSetting } from './theme';
 
 /** Where a document is kept: a JSON file, or a metadata map in a TypeScript or C# file. */
@@ -114,6 +114,25 @@ export interface DocIssue extends Issue {
 
 const SETTINGS_KEY = 'editor.settings';
 const SOURCES_KEY = (file: string) => `editor.sources:${file.toLowerCase()}`;
+/** The project file's extension (IdeaBlade Validation Project): the editor finds one next to a metadata file or in a folder above it. */
+export const PROJECT_EXTENSION = '.ivproj';
+
+function projectLabel(path: string): string {
+  const parts = path.split(/[\\/]/);
+  return parts.length > 1 ? `${parts[parts.length - 2]}/${parts[parts.length - 1]}` : path;
+}
+
+function unique(paths: string[]): string[] {
+  const seen = new Set<string>();
+  return paths.filter((p) => !seen.has(p.toLowerCase()) && seen.add(p.toLowerCase()));
+}
+
+function sameSet(a: readonly string[], b: readonly string[]): boolean {
+  const lower = (list: readonly string[]) => new Set(list.map((p) => p.toLowerCase()));
+  const x = lower(a);
+  const y = lower(b);
+  return x.size === y.size && [...x].every((p) => y.has(p));
+}
 const EMPTY: MetadataDoc = {};
 
 interface Settings {
@@ -147,7 +166,30 @@ export class EditorStore {
   readonly jsonText = computed(() => this.active()?.jsonText() ?? '');
   readonly invalidText = computed(() => this.active()?.invalidText());
   readonly readOnly = computed(() => this.active()?.readOnly());
-  readonly dirty = computed(() => this.documents().some((d) => d.dirty()));
+  /** The project (*.ivproj) in use, as last read or saved: the files and settings a team shares. */
+  readonly project = signal<Project | undefined>(undefined);
+  /**
+   * What the project file would say now: its metadata files plus the open ones (closing a file doesn't take it out of
+   * the project), the loaded sources, and the shared settings.
+   */
+  readonly projectState = computed<ProjectState>(() => {
+    const open = this.documents().map((d) => d.path()).filter((p): p is string => !!p);
+    return {
+      metadata: unique([...(this.project()?.metadata ?? []), ...open]),
+      sources: this.sources().map((s) => s.path),
+      otherValidators: this.settings().customValidators,
+      camelCase: this.settings().camelCase,
+    };
+  });
+  readonly projectDirty = computed(() => {
+    const p = this.project();
+    if (!p) return false;
+    const s = this.projectState();
+    return (
+      !sameSet(s.metadata, p.metadata) || !sameSet(s.sources, p.sourceFiles) || !sameSet(s.otherValidators, p.otherValidators) || s.camelCase !== p.camelCase
+    );
+  });
+  readonly dirty = computed(() => this.documents().some((d) => d.dirty()) || this.projectDirty());
   readonly title = computed(() => {
     const active = this.active();
     const others = this.documents().length - 1;
@@ -195,7 +237,21 @@ export class EditorStore {
   readonly errorCount = computed(() => this.allIssues().filter((i) => i.severity === 'error').length);
 
   constructor() {
+    // A file appeared in or disappeared from one of the project's pattern folders (a new DTO, a deleted entity).
+    host.onProjectFilesChanged((change) => {
+      if (change.path === this.project()?.path) void this.applyProjectFiles(change.sourceFiles);
+    });
+    // Whichever project is in use, its pattern folders are watched; again when its patterns change.
+    const watched = computed(() => {
+      const p = this.project();
+      return p ? `${p.path}\n${p.sources.join('\n')}` : '';
+    });
+    effect(() => void host.watchProject(watched() ? watched().split('\n')[0] : undefined));
     host.onSourceChanged((change) => {
+      if (change.path === this.project()?.path) {
+        void this.projectChangedOnDisk();
+        return;
+      }
       if (!this.sources().some((s) => s.path === change.path)) return;
       if (change.text !== undefined) {
         this.replaceSource(parseSource(change.path, change.text, this.settings(), change));
@@ -310,6 +366,10 @@ export class EditorStore {
   }
 
   private async openText(path: string, text: string): Promise<void> {
+    if (fileName(path).toLowerCase().endsWith(PROJECT_EXTENSION)) {
+      await this.openProject(path);
+      return;
+    }
     const open = this.documents().find((d) => d.path()?.toLowerCase() === path.toLowerCase());
     if (open) {
       this.selection.set({ docId: open.id, kind: 'document' });
@@ -347,9 +407,92 @@ export class EditorStore {
     if (!this.status().includes("doesn't parse")) {
       this.status.set(`Opened ${fileName(path)}${docs.length > 1 ? ` (${docs.length} metadata maps)` : ''}`);
     }
+    // The sources: from the project, or one found next to the file or above it; else as remembered for this file.
+    if (this.project()) return;
+    const projectPath = await host.findProject(path);
+    if (projectPath) {
+      await this.useProject(projectPath, false);
+      return;
+    }
     const remembered = JSON.parse(localStorage.getItem(SOURCES_KEY(path)) ?? '[]') as string[];
     const missing = remembered.filter((p) => !this.sources().some((s) => s.path === p));
     if (missing.length) await this.loadSourcePaths(missing, false);
+  }
+
+  // ---- The project file (*.ivproj)
+
+  /** Opens a project: its metadata files, its sources and its settings. */
+  async openProject(projectPath: string): Promise<void> {
+    if (!(await this.useProject(projectPath, true))) return;
+    for (const file of this.project()!.metadata) {
+      if (!this.documents().some((d) => d.path()?.toLowerCase() === file.toLowerCase())) await this.openPath(file);
+    }
+    this.status.set(`Opened the project ${projectLabel(projectPath)}`);
+  }
+
+  /** Takes a project's sources and settings (and remembers it as the project in use). */
+  private async useProject(projectPath: string, replaceSources: boolean): Promise<boolean> {
+    let project: Project;
+    try {
+      project = await host.readProject(projectPath);
+    } catch (e) {
+      this.status.set(`Could not read the project ${projectPath}: ${(e as Error).message}`);
+      return false;
+    }
+    this.project.set(project);
+    this.applyProjectSettings(project);
+    if (replaceSources) this.sources.set([]);
+    const missing = project.sourceFiles.filter((p) => !this.sources().some((s) => s.path === p));
+    await this.loadSourcePaths(missing, false);
+    this.status.set(`Using the project ${projectLabel(projectPath)}`);
+    return true;
+  }
+
+  private applyProjectSettings(project: Project): void {
+    const settings = { ...this.settings(), customValidators: project.otherValidators, camelCase: project.camelCase };
+    this.settings.set(settings);
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  }
+
+  /** The project file changed on disk (a git pull, an edit elsewhere): take it, unless there are unsaved changes. */
+  private async projectChangedOnDisk(): Promise<void> {
+    const current = this.project();
+    if (!current) return;
+    if (this.projectDirty()) {
+      this.status.set(`${projectLabel(current.path)} changed on disk. Save the project to keep your changes, or reload the sources to take its.`);
+      return;
+    }
+    let project: Project;
+    try {
+      project = await host.readProject(current.path);
+    } catch (e) {
+      this.status.set(`${projectLabel(current.path)} changed and doesn't read: ${(e as Error).message}`);
+      return;
+    }
+    this.project.set(project);
+    this.applyProjectSettings(project);
+    this.sources.set(this.sources().filter((s) => project.sourceFiles.includes(s.path)));
+    await this.loadSourcePaths(project.sourceFiles.filter((p) => !this.sources().some((s) => s.path === p)), false);
+    this.status.set(`Reloaded the project ${projectLabel(current.path)}`);
+  }
+
+  /** Saves the project file, or creates one next to the selected metadata file. */
+  async saveProject(): Promise<boolean> {
+    let path = this.project()?.path;
+    if (!path) {
+      const active = this.active()?.path();
+      path = await host.chooseProjectPath(active ? active.replace(/[\\/][^\\/]*$/, '') : undefined);
+      if (!path) return false;
+    }
+    try {
+      this.project.set(await host.writeProject(path, this.projectState()));
+    } catch (e) {
+      this.status.set(`Could not save the project: ${(e as Error).message}`);
+      return false;
+    }
+    this.afterSourcesChanged(false);
+    this.status.set(`Saved the project ${projectLabel(path)}`);
+    return true;
   }
 
   private add(docs: MetadataDocument[]): void {
@@ -460,6 +603,8 @@ export class EditorStore {
     for (const doc of this.documents().filter((d) => d.dirty())) {
       if (!(await this.save(doc))) return;
     }
+    // After the documents, so a new file saved under its name is in the project's list.
+    if (this.projectDirty()) await this.saveProject();
   }
 
   private afterSave(doc: MetadataDocument): void {
@@ -473,6 +618,12 @@ export class EditorStore {
       const choice = await host.confirm(`Save the changes to ${doc.label()}?`, doc.path() ?? 'Untitled', ['Save', "Don't save", 'Cancel']);
       if (choice === 2) return false;
       if (choice === 0 && !(await this.save(doc))) return false;
+    }
+    if (this.projectDirty()) {
+      const project = this.project()!;
+      const choice = await host.confirm('Save the changes to the project?', `${project.path}: its metadata files, sources or settings changed.`, ['Save', "Don't save", 'Cancel']);
+      if (choice === 2) return false;
+      if (choice === 0 && !(await this.saveProject())) return false;
     }
     return true;
   }
@@ -498,8 +649,42 @@ export class EditorStore {
   }
 
   async reloadSources(): Promise<void> {
+    // The project's patterns again first, so files added or removed since are taken in.
+    const project = this.project();
+    if (project) {
+      try {
+        await this.applyProjectFiles((await host.readProject(project.path)).sourceFiles, false);
+      } catch {
+        // the project file doesn't read right now: reload what's loaded
+      }
+    }
     await this.loadSourcePaths(this.sources().map((s) => s.path));
     this.status.set('Reloaded the sources');
+  }
+
+  /**
+   * The files the project's sources stand for now: loads the new ones and drops those that are gone. Sources added in
+   * the editor and not saved to the project yet stay.
+   */
+  private async applyProjectFiles(sourceFiles: string[], report = true): Promise<void> {
+    const project = this.project();
+    if (!project) return;
+    const lower = (list: string[]) => new Set(list.map((p) => p.toLowerCase()));
+    const before = lower(project.sourceFiles);
+    const after = lower(sourceFiles);
+    const added = sourceFiles.filter((p) => !before.has(p.toLowerCase()) && !this.sources().some((s) => s.path.toLowerCase() === p.toLowerCase()));
+    const removed = project.sourceFiles.filter((p) => !after.has(p.toLowerCase()));
+    this.project.set({ ...project, sourceFiles });
+    if (removed.length) {
+      const gone = lower(removed);
+      this.sources.set(this.sources().filter((s) => !gone.has(s.path.toLowerCase())));
+    }
+    if (added.length) await this.loadSourcePaths(added, false);
+    else if (removed.length) this.afterSourcesChanged(false);
+    if (report && (added.length || removed.length)) {
+      const names = (list: string[]) => list.map(fileName).join(', ');
+      this.status.set([added.length ? `New: ${names(added)}` : '', removed.length ? `Gone: ${names(removed)}` : ''].filter(Boolean).join(' · '));
+    }
   }
 
   removeSource(path: string): void {
@@ -514,12 +699,18 @@ export class EditorStore {
   }
 
   private afterSourcesChanged(remember = true): void {
-    void host.watchSources(this.sources().map((s) => s.path));
+    // The project file is watched too, so a change to it (a git pull) is picked up.
+    const project = this.project()?.path;
+    void host.watchSources([...this.sources().map((s) => s.path), ...(project ? [project] : [])]);
     if (remember) this.rememberSources();
   }
 
-  /** Each open file remembers the sources, so opening it again brings them back. */
+  /**
+   * Without a project file, each open file remembers the sources for this user, so opening it again brings them back.
+   * With one, the project file holds them (and shows unsaved changes instead).
+   */
   private rememberSources(): void {
+    if (this.project()) return;
     const paths = JSON.stringify(this.sources().map((s) => s.path));
     for (const file of new Set(this.documents().map((d) => d.path()).filter((p): p is string => !!p))) {
       localStorage.setItem(SOURCES_KEY(file), paths);

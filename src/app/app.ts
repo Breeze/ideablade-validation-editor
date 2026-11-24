@@ -35,6 +35,22 @@ interface Counts {
 
     <div class="layout">
       <nav class="sidebar">
+        <div class="nav-title">Project</div>
+        @if (store.project(); as p) {
+          <div class="project" [title]="p.path">
+            <span class="doc-name">{{ fileName(p.path) }}</span>
+            @if (store.projectDirty()) { <span class="dirty" title="Unsaved changes: metadata files, sources or settings">●</span> }
+            <span class="spacer"></span>
+            <button (click)="store.saveProject()" [disabled]="!store.projectDirty()">Save</button>
+          </div>
+          <div class="hint">{{ p.metadata.length }} metadata {{ p.metadata.length === 1 ? 'file' : 'files' }} · {{ p.sources.length }} source {{ p.sources.length === 1 ? 'entry' : 'entries' }} · shared settings</div>
+        } @else {
+          <div class="add-row">
+            <button (click)="store.saveProject()" [disabled]="!store.documents().length">Create project file…</button>
+          </div>
+          <div class="hint">A project file (*.ivproj) shares the metadata files, sources and settings with your team. The editor finds it next to a metadata file or in a folder above.</div>
+        }
+
         <div class="nav-title">Metadata <span class="count">{{ store.documents().length }}</span></div>
         @for (d of store.documents(); track d.id) {
           <div class="doc" [class.active]="d === store.active()">

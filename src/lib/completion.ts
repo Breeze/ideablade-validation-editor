@@ -72,7 +72,7 @@ export function typeFromText(text: string | undefined, catalog: Catalog): TypeRe
     .join('|');
   if (t.includes('|')) return ANY;
   t = t.replace(/\?$/, '').replace(/^Nullable<(.+)>$/, '$1').replace(/^global::/, '');
-  const array = /^(.+)\[\]$/.exec(t) ?? /^(?:Array|ReadonlyArray|List|IList|IReadOnlyList|ICollection|IReadOnlyCollection|IEnumerable|HashSet|ISet|Collection|ObservableCollection)<(.+)>$/.exec(t);
+  const array = /^(.+)\[\]$/.exec(t) ?? /^(?:Array|ReadonlyArray|List|IList|IReadOnlyList|ICollection|IReadOnlyCollection|IEnumerable|HashSet|ISet|Collection|ObservableCollection|RelationArray)<(.+)>$/.exec(t);
   if (array) return { k: 'array', of: typeFromText(array[1], catalog) };
   const short = t.replace(/^System\./, '');
   switch (short.toLowerCase()) {

@@ -4,6 +4,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { withTypeScriptModels } = require('./typescript-models.cjs');
 const { readTsMetadata, writeTsMetadata, newTsMetadataFile } = require('./typescript-metadata.cjs');
+const { PROJECT_EXTENSION, projectFileName, findProject, readProject, writeProject, watchProjectFolders } = require('./project.cjs');
 
 let win;
 let forceClose = false;
@@ -40,10 +41,11 @@ function createWindow() {
 // Validation metadata lives in JSON files, or in TypeScript and C# files (see typescript-metadata.cjs and
 // src/lib/cs-metadata.ts).
 const metadataFilters = [
-  { name: 'Validation metadata', extensions: ['json', 'ts', 'cs'] },
+  { name: 'Validation metadata and projects', extensions: ['json', 'ts', 'cs', 'ivproj'] },
   { name: 'JSON', extensions: ['json'] },
   { name: 'TypeScript', extensions: ['ts'] },
   { name: 'C#', extensions: ['cs'] },
+  { name: 'IdeaBlade Validation Project', extensions: ['ivproj'] },
 ];
 
 ipcMain.handle('file:open', async (_e, title) => {
@@ -61,7 +63,7 @@ ipcMain.handle('file:save', async (_e, filePath, text) => {
 
 /** Asks where to save; the format follows the extension chosen. The renderer writes the file. */
 ipcMain.handle('file:choose-save-path', async (_e, defaultPath) => {
-  const filters = [...metadataFilters.slice(1)];
+  const filters = metadataFilters.slice(1, 4); // the metadata formats
   const ext = path.extname(defaultPath ?? '').slice(1).toLowerCase();
   filters.sort((a, b) => (b.extensions[0] === ext) - (a.extensions[0] === ext)); // the current format first
   const result = await dialog.showSaveDialog(win, { defaultPath, filters });
@@ -72,6 +74,36 @@ ipcMain.handle('file:choose-save-path', async (_e, defaultPath) => {
 ipcMain.handle('ts:read-metadata', (_e, text, fileName) => readTsMetadata(text, fileName));
 ipcMain.handle('ts:write-metadata', (_e, text, fileName, name, json) => writeTsMetadata(text, fileName, name, json));
 ipcMain.handle('ts:new-metadata', (_e, name, json) => newTsMetadataFile(name, json));
+
+// The project file (*.ivproj, see project.cjs): the renderer works with absolute paths.
+ipcMain.handle('project:find', (_e, filePath) => findProject(filePath));
+ipcMain.handle('project:read', (_e, projectPath) => readProject(projectPath));
+ipcMain.handle('project:write', (_e, projectPath, project) => writeProject(projectPath, project));
+
+// The folders the project's patterns point at: files appearing or disappearing there (a new DTO, a deleted entity)
+// are sent to the renderer as the patterns' new list of files. One project at a time; called again when it changes.
+let stopProjectWatch;
+ipcMain.handle('project:watch', async (_e, projectPath) => {
+  stopProjectWatch?.();
+  stopProjectWatch = undefined;
+  if (!projectPath) return;
+  try {
+    stopProjectWatch = await watchProjectFolders(projectPath, (sourceFiles) => win?.webContents.send('project:files-changed', { path: projectPath, sourceFiles }));
+  } catch {
+    // the project doesn't read: the renderer has reported that already
+  }
+});
+ipcMain.handle('project:choose-path', async (_e, defaultDir) => {
+  const result = await dialog.showSaveDialog(win, {
+    title: 'Create a project file',
+    // Named after its folder by default: temphire.angular -> temphire.angular.ivproj.
+    defaultPath: path.join(defaultDir ?? app.getPath('documents'), projectFileName(path.basename(defaultDir ?? 'validation'))),
+    filters: [{ name: 'IdeaBlade Validation Project', extensions: [PROJECT_EXTENSION.slice(1)] }],
+  });
+  if (result.canceled || !result.filePath) return undefined;
+  // The editor finds projects by their extension, so a project file always has it, whatever name was typed.
+  return path.join(path.dirname(result.filePath), projectFileName(path.basename(result.filePath)));
+});
 
 ipcMain.handle('app:confirm', async (_e, message, detail, buttons) => {
   const result = await dialog.showMessageBox(win, { type: 'question', message, detail, buttons, defaultId: 0, cancelId: buttons.length - 1 });
@@ -153,12 +185,13 @@ ipcMain.on('app:set-theme', (_e, theme) => {
 });
 
 // A file passed on the command line (e.g. through the "Open with" file association).
-// Command line: metadata files to open (JSON, TS or C#), and sources to load with them:
+// Command line: a project (*.ivproj), or metadata files to open (JSON, TS or C#) and sources to load with them:
+//   electron . temphire.ivproj
 //   electron . validation.metadata.json client-validation-metadata.ts --source=breeze-metadata.json --source=src/app/view-models.ts
 // Relative paths are resolved against the working directory.
 ipcMain.handle('app:startup-args', () => {
   const args = process.argv.slice(app.isPackaged ? 1 : 2);
-  const files = args.filter((a) => !a.startsWith('-') && /\.(json|ts|cs)$/i.test(a)).map((a) => path.resolve(a));
+  const files = args.filter((a) => !a.startsWith('-') && /\.(json|ts|cs|ivproj)$/i.test(a)).map((a) => path.resolve(a));
   const sources = args.filter((a) => a.startsWith('--source=')).map((a) => path.resolve(a.slice('--source='.length)));
   return { files, sources };
 });

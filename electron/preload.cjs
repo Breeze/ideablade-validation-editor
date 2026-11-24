@@ -9,6 +9,16 @@ contextBridge.exposeInMainWorld('editorHost', {
   readTsMetadata: (text, fileName) => ipcRenderer.invoke('ts:read-metadata', text, fileName),
   writeTsMetadata: (text, fileName, name, json) => ipcRenderer.invoke('ts:write-metadata', text, fileName, name, json),
   newTsMetadata: (name, json) => ipcRenderer.invoke('ts:new-metadata', name, json),
+  findProject: (filePath) => ipcRenderer.invoke('project:find', filePath),
+  readProject: (projectPath) => ipcRenderer.invoke('project:read', projectPath),
+  writeProject: (projectPath, project) => ipcRenderer.invoke('project:write', projectPath, project),
+  chooseProjectPath: (defaultDir) => ipcRenderer.invoke('project:choose-path', defaultDir),
+  watchProject: (projectPath) => ipcRenderer.invoke('project:watch', projectPath),
+  onProjectFilesChanged: (handler) => {
+    const listener = (_e, change) => handler(change);
+    ipcRenderer.on('project:files-changed', listener);
+    return () => ipcRenderer.removeListener('project:files-changed', listener);
+  },
   confirm: (message, detail, buttons) => ipcRenderer.invoke('app:confirm', message, detail, buttons),
   openSources: () => ipcRenderer.invoke('file:open-source'),
   watchSources: (paths) => ipcRenderer.invoke('sources:watch', paths),

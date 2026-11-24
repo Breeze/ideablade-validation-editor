@@ -16,7 +16,7 @@
     "build": "ng build",
     "start": "npm run build && electron .",
     "dev": "node scripts/build-schema-validator.mjs && node scripts/dev.mjs",
-    "test": "node scripts/build-schema-validator.mjs && ng test --watch=false && node --test electron/",
+    "test": "node scripts/build-schema-validator.mjs && ng test --watch=false && node scripts/test-main.mjs",
     "dist": "npm run build && electron-builder --win nsis",
     "dist:dir": "npm run build && electron-builder --win dir"
   },
@@ -58,6 +58,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "!electron/**/*.test.cjs",
       "package.json"
     ],
     "win": {
@@ -67,6 +68,14 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false
-    }
+    },
+    "fileAssociations": [
+      {
+        "ext": "ivproj",
+        "name": "IdeaBlade Validation Project",
+        "description": "IdeaBlade Validation Project",
+        "role": "Editor"
+      }
+    ]
   }
 }

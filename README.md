@@ -30,7 +30,26 @@ A desktop editor for [IdeaBlade Validation](https://github.com/Breeze/ideablade-
   - **Expression functions:** `expressionScope: { … }` and `provideExpressionScope(…)` (TS), `AddExpressionFunction("name", (Func<…>)(…))` (C#), with their parameters and return types where the code says.
   - The checks know these validators: no "unknown validator" for them, and an error when a rule's `async` doesn't match how the validator is registered. Validators that are in no source file can be listed under Settings → Other validators.
   - **C#:** classes, records (including positional parameters) and structs with their public instance properties, base classes and `[StringLength]`/`[MaxLength]` hints. This is a lightweight reader rather than a compiler, enough for DTOs and view models.
-  - **Kept up to date:** each source file is watched and read again when it changes (also **Reload sources**, F5). The sources are remembered per metadata file and loaded again when you open it.
+  - **Kept up to date:** each source file is watched and read again when it changes (also **Reload sources**, F5).
+- **A project file to share with the team:** an IdeaBlade Validation Project, `*.ivproj` (JSON), next to the metadata or in a folder above it, lists the metadata files to open together, the sources and the shared settings (other validators, camelCase). Paths are relative to it, and sources can be patterns, such as a folder of DTOs. TempHire's, `temphire.ivproj` at the root of temphire.angular, takes the entities from the Breeze metadata that `npm run model` exports (and generates the entity classes from), plus the view models that aren't in it:
+
+  ```json
+  {
+    "metadata": [
+      "server/TempHire.Server/Validation/validation.metadata.json",
+      "client/src/app/core/validation/client-validation-metadata.ts"
+    ],
+    "sources": [
+      "client/metadata.json",
+      "client/src/app/core/projections/*.ts",
+      "client/src/app/resource-mgt/resource-name-editor.component.ts"
+    ],
+    "otherValidators": [],
+    "camelCase": true
+  }
+  ```
+
+  Opening the project file (Open…, or on the command line) opens its metadata files and loads its sources. Opening one of its metadata files finds the project (the `*.ivproj` in that folder, or in the nearest folder above that has one; with several, the first by name) and uses its sources and settings. **Create project file…** in the sidebar writes one from what's open, named after its folder by default. The installer registers `.ivproj`, so double-clicking a project opens it in the editor. The content is JSON: to have VS Code colour it as such, map it in `files.associations` (`"*.ivproj": "json"`). Changes (added sources, newly opened files, settings) show as unsaved until you save the project, with Save all or its own Save; closing a file doesn't take it out of the project. **New files are picked up:** the folders a pattern points at are watched, so a new DTO appears as a source as soon as its file is written, and a deleted one goes; Reload sources (F5) expands the patterns again too. A pattern stays as it is when the project is saved, as long as it still matches a loaded file. The project file is watched as well, so a `git pull` that changes it is picked up. Keys the editor doesn't know, such as `$comment`, are kept. Without a project file, the editor remembers the sources per metadata file for you alone (in its app data).
 - **Checks as you edit** (Issues tab, and next to each field):
   - **Schema:** against `validation-metadata.schema.json` from the installed `ideablade-validation` package.
   - **The library:** `ideablade-validation` itself checks what the schema can't. It reports unknown validator names, `async` that doesn't match an app validator's registration, regular expression flags that are invalid or behave differently on client and server (`g`, `y`, `v`), expressions and conditions that don't parse (`checkExpression`), invalid `pattern`s, and `from`/`extends` that lead nowhere. It also runs the duplicate error key check (`ModelMetadata.checkErrorKeys`), which the service runs before it first validates a model type. Rule sources work as in the app: a `from` that names a Breeze entity resolves, as it does with `breezeRuleSource`.
@@ -49,7 +68,7 @@ A desktop editor for [IdeaBlade Validation](https://github.com/Breeze/ideablade-
 
 ## Running it
 
-Node 26.13.1 (the current LTS; `.node-version`). With nvs: `nvs use 26.13.1`.
+Node 26.13.1 (the current LTS; `.node-version`) to build and run the tooling. With nvs: `nvs use 26.13.1`. The app itself runs on the Node inside Electron (24.22 in Electron 45).
 
 ```powershell
 npm install
@@ -60,11 +79,17 @@ npm start
 
 While working on the editor, `npm run dev` runs `ng serve` (port 4300) with live reload and Electron pointed at it.
 
-Metadata files (JSON, TS or C#) and sources can be given on the command line, which is handy for trying it out on TempHire:
+A project file, metadata files (JSON, TS or C#) and sources can be given on the command line. TempHire's Angular client has a project file at its root:
 
 ```powershell
 npm run build
-npx electron . samples/temphire.validation.metadata.json ../temphire.angular/client/src/app/core/validation/client-validation-metadata.ts --source=samples/temphire.breeze-metadata.json --source=../temphire.angular/client/src/app/resource-mgt/resource-name-editor.component.ts --source=samples/app-validation.ts
+npx electron . ../temphire.angular/temphire.ivproj
+```
+
+Or files and sources one by one:
+
+```powershell
+npx electron . samples/temphire.validation.metadata.json --source=samples/temphire.breeze-metadata.json --source=samples/app-validation.ts
 ```
 
 The `samples/` folder has TempHire's validation metadata and its Breeze metadata, exported from `TempHirePersistenceManager.Metadata()`, and `app-validation.ts`, an example of an application's own validators and expression functions as the editor reads them.
@@ -75,7 +100,7 @@ The `samples/` folder has TempHire's validation metadata and its Breeze metadata
 npm test
 ```
 
-Unit tests (Vitest, through Angular's test builder) cover the Breeze and C# readers, the checks on TempHire's metadata, and the tester.
+Unit tests (Vitest, through Angular's test builder) cover the Breeze and C# readers, metadata in C#, the checks on TempHire's metadata, completion, and the tester. The main process's code (metadata in TypeScript, the project file) is tested with Node's test runner on **Electron's own Node** (24.22 in Electron 45), because that's what it runs on in the app, whatever `.node-version` says: `.node-version` only picks the Node that builds the app and runs the tooling.
 
 ## Packaging
 

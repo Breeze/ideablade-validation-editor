@@ -39,6 +39,25 @@ export interface TsMetadata {
   hasComments: boolean;
 }
 
+/** A project (*.ivproj, electron/project.cjs), with absolute paths. */
+export interface Project {
+  path: string;
+  metadata: string[];
+  /** The source entries as written: files, or patterns like `client/src/app/core/model/*.ts`. */
+  sources: string[];
+  /** The files they stand for now. */
+  sourceFiles: string[];
+  otherValidators: string[];
+  camelCase: boolean;
+}
+
+export interface ProjectState {
+  metadata: string[];
+  sources: string[];
+  otherValidators: string[];
+  camelCase: boolean;
+}
+
 export interface EditorHost {
   openFile(title: string): Promise<OpenedFile[]>;
   readFile(path: string): Promise<OpenedFile>;
@@ -48,6 +67,15 @@ export interface EditorHost {
   readTsMetadata(text: string, fileName: string): Promise<TsMetadata[]>;
   writeTsMetadata(text: string, fileName: string, name: string, json: JsonObject): Promise<string>;
   newTsMetadata(name: string, json: JsonObject): Promise<string>;
+  /** The *.ivproj in the folder of a file, or in the nearest folder above that has one. */
+  findProject(filePath: string): Promise<string | undefined>;
+  readProject(projectPath: string): Promise<Project>;
+  writeProject(projectPath: string, state: ProjectState): Promise<Project>;
+  chooseProjectPath(defaultDir?: string): Promise<string | undefined>;
+  /** Watches the folders of the project's source patterns (none for undefined). */
+  watchProject(projectPath: string | undefined): Promise<void>;
+  /** Files appeared in or disappeared from a pattern folder: the patterns' files now. */
+  onProjectFilesChanged(handler: (change: { path: string; sourceFiles: string[] }) => void): () => void;
   confirm(message: string, detail: string, buttons: string[]): Promise<number>;
   openSources(): Promise<OpenedFile[]>;
   watchSources(paths: string[]): Promise<void>;
@@ -80,6 +108,12 @@ const browserHost: EditorHost = {
   readTsMetadata: noFileSystem,
   writeTsMetadata: noFileSystem,
   newTsMetadata: noFileSystem,
+  findProject: async () => undefined,
+  readProject: noFileSystem,
+  writeProject: noFileSystem,
+  chooseProjectPath: async () => undefined,
+  watchProject: async () => {},
+  onProjectFilesChanged: () => () => {},
   confirm: async (message, _detail, buttons) => (window.confirm(message) ? 0 : buttons.length - 1),
   openSources: async () => [],
   watchSources: async () => {},
