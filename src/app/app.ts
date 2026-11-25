@@ -214,13 +214,13 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
             <span class="badge kind">Folder</span>
             <span class="pattern-count">{{ p.files.length }} {{ p.files.length === 1 ? 'file' : 'files' }}{{ patternErrors(p) ? ', ' + patternErrors(p) + ' not read' : '' }} · watched</span>
             <span class="spacer"></span>
-            <button class="icon" title="Change the pattern" (click)="editingPattern.set(p.pattern)">✎</button>
+            <button class="icon" title="Change the pattern" (click)="editPattern(p.pattern)">✎</button>
             <button class="icon" title="Remove the pattern and the sources it matched" (click)="store.removePattern(p.pattern)">✕</button>
             @if (editingPattern() === p.pattern) {
               <input class="pattern-input" [value]="store.patternLabel(p.pattern)" (keydown.enter)="commitPattern(p.pattern, $any($event.target).value)"
                 (keydown.escape)="editingPattern.set(undefined)" (blur)="commitPattern(p.pattern, $any($event.target).value)" />
             } @else {
-              <div class="pattern-text" title="Its files are sources, and new ones are picked up as they appear. Double-click to change it." (dblclick)="editingPattern.set(p.pattern)">{{ store.patternLabel(p.pattern) }}</div>
+              <div class="pattern-text" title="Its files are sources, and new ones are picked up as they appear. Double-click to change it." (dblclick)="editPattern(p.pattern)">{{ store.patternLabel(p.pattern) }}</div>
             }
           </div>
           @if (patternOpen(p.pattern)) {
@@ -879,6 +879,16 @@ export class App {
 
   private readonly openPatterns = signal<ReadonlySet<string>>(new Set());
   readonly editingPattern = signal<string | undefined>(undefined);
+
+  /** ✎ or a double-click: the pattern becomes a text field, focused with its text selected. */
+  editPattern(pattern: string): void {
+    this.editingPattern.set(pattern);
+    setTimeout(() => {
+      const input = document.querySelector<HTMLInputElement>('.sidebar-bottom .pattern-input');
+      input?.focus();
+      input?.select();
+    });
+  }
 
   patternOpen(pattern: string): boolean {
     return this.openPatterns().has(pattern);
