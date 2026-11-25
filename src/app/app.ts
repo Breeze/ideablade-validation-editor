@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
 
 import { modelKeys } from '../lib/doc';
 import { type ModelSource, fileName } from '../lib/sources';
@@ -318,6 +318,11 @@ export class App {
   readonly docCounts = computed(() => this.count((i) => i.docId));
 
   constructor() {
+    // The sidebar's folds as they were left in this project (or file), whenever another one opens.
+    effect(() => {
+      const key = this.store.workspaceKey();
+      untracked(() => void this.loadFolds(key));
+    });
     // The panes' widths as they were left, and kept fitting the window as it's resized.
     void host.getLayout().then((layout) => {
       if (layout?.sidebar) this.sidebarWidth.set(layout.sidebar);
@@ -467,35 +472,68 @@ export class App {
 
   // ---- Folding files and maps in the sidebar
 
-  /** Folded files (by file) and maps (by document): only their name line shows. A search shows its matches anyway. */
+  /**
+   * Folded files (by their key: the path in lower case) and maps (mapKey): only their name line shows. A search shows
+   * its matches anyway. Kept for each project with the user's settings (window-state.json), and restored when it opens.
+   */
   private readonly foldedFiles = signal<ReadonlySet<string>>(new Set());
   private readonly foldedMaps = signal<ReadonlySet<string>>(new Set());
+  /** The workspace whose folds are loaded: saving waits for that, so it doesn't overwrite them with none. */
+  private foldsFor: string | undefined;
+
+  /** A map by its file and name, which stay the same from one run to the next (its id doesn't). */
+  private mapKey(d: MetadataDocument): string {
+    const path = d.path();
+    return path ? `${path.toLowerCase()}#${d.name() ?? ''}` : d.id;
+  }
 
   fileFolded(g: FileGroup): boolean {
     return !this.filtering() && this.foldedFiles().has(g.key);
   }
 
   mapFolded(d: MetadataDocument): boolean {
-    return !this.filtering() && this.foldedMaps().has(d.id);
+    return !this.filtering() && this.foldedMaps().has(this.mapKey(d));
   }
 
   toggleFile(g: FileGroup): void {
     this.foldedFiles.update((set) => toggled(set, g.key));
+    this.saveFolds();
   }
 
   toggleMap(d: MetadataDocument): void {
-    this.foldedMaps.update((set) => toggled(set, d.id));
+    this.foldedMaps.update((set) => toggled(set, this.mapKey(d)));
+    this.saveFolds();
   }
 
   /** Every file folded down to its name. */
   collapseAll(): void {
     this.foldedFiles.set(new Set(this.fileGroups().map((g) => g.key)));
+    this.saveFolds();
   }
 
   /** Every file and map unfolded. */
   expandAll(): void {
     this.foldedFiles.set(new Set());
     this.foldedMaps.set(new Set());
+    this.saveFolds();
+  }
+
+  /** The folds this workspace had last time; none for a workspace that had none. */
+  private async loadFolds(key: string): Promise<void> {
+    this.foldsFor = undefined;
+    const folds = key ? await host.getFolds(key) : undefined;
+    if (this.store.workspaceKey() !== key) return; // another one opened meanwhile
+    this.foldedFiles.set(new Set(folds?.files ?? []));
+    this.foldedMaps.set(new Set(folds?.maps ?? []));
+    this.foldsFor = key || undefined;
+  }
+
+  /** Saved files and maps only: an unsaved document's id means nothing next time. */
+  private saveFolds(): void {
+    const key = this.store.workspaceKey();
+    if (!key || this.foldsFor !== key) return;
+    const saved = (set: ReadonlySet<string>) => [...set].filter((k) => !k.startsWith('doc'));
+    host.saveFolds(key, { files: saved(this.foldedFiles()), maps: saved(this.foldedMaps()) });
   }
 
   // ---- Finding model types and maps: the sidebar's search field

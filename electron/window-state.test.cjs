@@ -9,6 +9,8 @@ const {
   isVisible,
   getSelection,
   setSelection,
+  getFolds,
+  setFolds,
   getLastProject,
   setLastProject,
   clearLastProject,
@@ -100,6 +102,22 @@ describe('the window state', () => {
     assert.equal(getLastProject(file), undefined);
     assert.ok('recentProjects' in JSON.parse(fs.readFileSync(file, 'utf8'))); // the rest of the file stays
     fs.rmSync(dir, { recursive: true });
+    fs.rmSync(file, { force: true });
+  });
+
+  it('keeps the folded files and maps per workspace, next to the selection, and forgets a workspace with none', () => {
+    fs.rmSync(file, { force: true });
+    save({ x: 10, y: 10, width: 1600, height: 1000, maximized: false });
+    assert.equal(getFolds(file, 'c:/a/temphire.ivproj'), undefined);
+    setSelection(file, 'c:/a/temphire.ivproj', { kind: 'document' });
+    setFolds(file, 'c:/a/temphire.ivproj', { files: ['c:\\a\\server.json'], maps: ['c:\\a\\client.ts#adminMetadata'] });
+    setFolds(file, 'c:/b/other.ivproj', { files: ['c:\\b\\x.json'], maps: [] });
+    assert.deepEqual(getFolds(file, 'c:/a/temphire.ivproj'), { files: ['c:\\a\\server.json'], maps: ['c:\\a\\client.ts#adminMetadata'] });
+    assert.deepEqual(getFolds(file, 'c:/b/other.ivproj'), { files: ['c:\\b\\x.json'], maps: [] });
+    assert.deepEqual(getSelection(file, 'c:/a/temphire.ivproj'), { kind: 'document' }); // the selection stays
+    setFolds(file, 'c:/b/other.ivproj', { files: [], maps: [] }); // nothing folded: the entry goes
+    assert.equal(getFolds(file, 'c:/b/other.ivproj'), undefined);
+    assert.equal(loadWindowState(file, screens).width, 1600);
     fs.rmSync(file, { force: true });
   });
 

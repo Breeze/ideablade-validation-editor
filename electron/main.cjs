@@ -10,6 +10,8 @@ const {
   trackWindowState,
   getSelection,
   setSelection,
+  getFolds,
+  setFolds,
   getLastProject,
   setLastProject,
   clearLastProject,
@@ -260,6 +262,8 @@ ipcMain.handle('ui:get-layout', () => getLayout(windowStateFile()));
 ipcMain.on('ui:set-layout', (_e, layout) => setLayout(windowStateFile(), layout));
 ipcMain.handle('ui:get-selection', (_e, key) => getSelection(windowStateFile(), key));
 ipcMain.on('ui:set-selection', (_e, key, selection) => setSelection(windowStateFile(), key, selection));
+ipcMain.handle('ui:get-folds', (_e, key) => getFolds(windowStateFile(), key));
+ipcMain.on('ui:set-folds', (_e, key, folds) => setFolds(windowStateFile(), key, folds));
 
 // The renderer's theme setting (dark, light or system): the window frame, menus and dialogs follow it.
 ipcMain.on('app:set-theme', (_e, theme) => {

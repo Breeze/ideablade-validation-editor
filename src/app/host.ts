@@ -81,6 +81,12 @@ export interface PaneLayout {
   side?: number;
 }
 
+/** Folded in the sidebar: files by path, maps by path and name ('c:\x\client.ts#adminMetadata'); the paths in lower case, the names as they are. */
+export interface SavedFolds {
+  files: string[];
+  maps: string[];
+}
+
 export interface EditorHost {
   openFile(title: string): Promise<OpenedFile[]>;
   readFile(path: string): Promise<OpenedFile>;
@@ -118,6 +124,9 @@ export interface EditorHost {
   /** What was selected in the sidebar for a workspace (a user setting, kept with the window's place). */
   getSelection(key: string): Promise<SavedSelection | undefined>;
   saveSelection(key: string, selection: SavedSelection): void;
+  /** The sidebar's folded files (by path) and maps (path#name) for a workspace, kept with the selection. */
+  getFolds(key: string): Promise<SavedFolds | undefined>;
+  saveFolds(key: string, folds: SavedFolds): void;
   /** The panes' widths as the user left them (the splitters), kept with the window's place. */
   getLayout(): Promise<PaneLayout | undefined>;
   saveLayout(layout: PaneLayout): void;
@@ -172,6 +181,8 @@ const browserHost: EditorHost = {
   setTheme: () => {},
   getSelection: async () => undefined,
   saveSelection: () => {},
+  getFolds: async () => undefined,
+  saveFolds: () => {},
   getLayout: async () => undefined,
   saveLayout: () => {},
   setUnsaved: () => {},

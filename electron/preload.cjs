@@ -34,6 +34,8 @@ contextBridge.exposeInMainWorld('editorHost', {
   setTheme: (theme) => ipcRenderer.send('app:set-theme', theme),
   getSelection: (key) => ipcRenderer.invoke('ui:get-selection', key),
   saveSelection: (key, selection) => ipcRenderer.send('ui:set-selection', key, selection),
+  getFolds: (key) => ipcRenderer.invoke('ui:get-folds', key),
+  saveFolds: (key, folds) => ipcRenderer.send('ui:set-folds', key, folds),
   getLayout: () => ipcRenderer.invoke('ui:get-layout'),
   saveLayout: (layout) => ipcRenderer.send('ui:set-layout', layout),
   setProjectOpen: (open) => ipcRenderer.send('project:open-state', open),

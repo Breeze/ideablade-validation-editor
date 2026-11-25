@@ -84,14 +84,35 @@ function getSelection(file, key) {
 }
 
 function setSelection(file, key, selection) {
-  updateFile(file, (state) => {
-    const selections = { ...(state.selections && typeof state.selections === 'object' ? state.selections : {}) };
-    delete selections[key]; // re-added last: the most recent at the end
-    if (selection) selections[key] = selection;
-    const keys = Object.keys(selections);
-    for (const old of keys.slice(0, Math.max(0, keys.length - MAX_SELECTIONS))) delete selections[old];
-    return { ...state, selections };
-  });
+  updateFile(file, (state) => ({ ...state, selections: withEntry(state.selections, key, selection) }));
+}
+
+/** An object of entries by workspace with this one set (last: the most recent), the oldest beyond 50 dropped. */
+function withEntry(entries, key, value) {
+  const result = { ...(entries && typeof entries === 'object' ? entries : {}) };
+  delete result[key]; // re-added last: the most recent at the end
+  if (value) result[key] = value;
+  const keys = Object.keys(result);
+  for (const old of keys.slice(0, Math.max(0, keys.length - MAX_SELECTIONS))) delete result[old];
+  return result;
+}
+
+// Which files and maps are folded in the sidebar, per workspace like the selection: files by path, maps by path and
+// name ("C:\x\client.ts#adminMetadata"), so they're found again when the project opens next time.
+
+/** The folded files and maps, as saved: lists of strings only. */
+function getFolds(file, key) {
+  const folds = readFile(file).folds;
+  const entry = folds && typeof folds === 'object' ? folds[key] : undefined;
+  if (!entry || typeof entry !== 'object') return undefined;
+  const strings = (list) => (Array.isArray(list) ? list.filter((s) => typeof s === 'string') : []);
+  return { files: strings(entry.files), maps: strings(entry.maps) };
+}
+
+/** Saves them; nothing folded removes the workspace's entry. */
+function setFolds(file, key, folds) {
+  const empty = !folds || (!folds.files?.length && !folds.maps?.length);
+  updateFile(file, (state) => ({ ...state, folds: withEntry(state.folds, key, empty ? undefined : { files: folds.files ?? [], maps: folds.maps ?? [] }) }));
 }
 
 // The project used last, reopened when the editor starts without files on its command line, and the ones before it,
@@ -181,6 +202,8 @@ module.exports = {
   isVisible,
   getSelection,
   setSelection,
+  getFolds,
+  setFolds,
   getLastProject,
   setLastProject,
   clearLastProject,
