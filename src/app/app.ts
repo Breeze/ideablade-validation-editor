@@ -77,6 +77,8 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
 
     <div class="layout" [style.grid-template-columns]="gridColumns()">
       <nav class="sidebar">
+        <!-- Pinned at the top: the project, the Metadata heading with Collapse all / Expand all, and the search -->
+        <div class="sidebar-top">
         <div class="nav-title">Project</div>
         @if (store.project(); as p) {
           <div class="project" [title]="p.path">
@@ -108,6 +110,10 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
             @if (filtering()) { <span class="search-count" title="Model types that match, of all">{{ matchCount() }} of {{ modelTotal() }}</span> }
           </div>
         }
+        </div>
+
+        <!-- The files and maps, scrolling between the two -->
+        <div class="sidebar-list">
         @for (g of fileGroups(); track g.key) {
           @if (showGroup(g)) {
           <div class="doc" [class.active]="g.docs.includes(store.active()!)" [class.drop-target]="dropOn() === g.key"
@@ -195,7 +201,10 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
         }
 
         @if (nothingMatches()) { <div class="hint">No model type, map or file matches “{{ filter().trim() }}”. Esc clears the search.</div> }
+        </div>
 
+        <!-- Pinned at the bottom: the sources and the settings -->
+        <div class="sidebar-bottom">
         <div class="nav-title">Sources <span class="count">{{ store.sources().length }}</span></div>
         @for (s of store.sources(); track s.path) {
           <div class="source" [class.failed]="!!s.error" [title]="s.path">
@@ -225,6 +234,7 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
             @for (t of themes; track t) { <option [value]="t" [selected]="store.settings().theme === t">{{ themeLabels[t] }}</option> }
           </select>
         </label>
+        </div>
       </nav>
       <div class="splitter" title="Drag to make the sidebar wider or narrower (Esc while dragging cancels); double-click for its default width"
         (pointerdown)="startResize('sidebar', $event)" (dblclick)="resetWidth('sidebar')"></div>
