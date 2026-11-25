@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 
 import { modelKeys } from '../lib/doc';
 import { type ModelSource, fileName } from '../lib/sources';
@@ -87,12 +87,21 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
         }
 
         <div class="nav-title">Metadata <span class="count">{{ store.documents().length }}</span></div>
+        @if (store.documents().length) {
+          <div class="sidebar-search">
+            <input #search type="search" placeholder="Find model types and maps…" title="Ctrl+Shift+F. Enter opens the first match, Esc clears it."
+              aria-label="Find model types and maps" [value]="filter()" (input)="filter.set($any($event.target).value)"
+              (keydown.escape)="clearFilter($event)" (keydown.enter)="openFirstMatch()" />
+            @if (filtering()) { <span class="search-count" title="Model types that match, of all">{{ matchCount() }} of {{ modelTotal() }}</span> }
+          </div>
+        }
         @for (g of fileGroups(); track g.key) {
+          @if (showGroup(g)) {
           <div class="doc" [class.active]="g.docs.includes(store.active()!)" [class.drop-target]="dropOn() === g.key"
             (dragover)="overFile($event, g)" (dragleave)="leave($event, g.key)" (drop)="dropOnFile($event, g)">
             <div class="doc-head" [title]="g.docs[0].path() ?? 'Not saved yet'" (click)="store.select({ docId: g.docs[0].id, kind: 'document' })">
               <span class="badge kind">{{ formatLabels[g.docs[0].format()] }}</span>
-              <span class="doc-name">{{ g.docs[0].fileLabel() }}</span>
+              <span class="doc-name">@for (p of parts(g.docs[0].fileLabel()); track $index) {@if (p.match) {<mark>{{ p.text }}</mark>} @else {{{ p.text }}}}</span>
               @if (groupDirty(g)) { <span class="dirty" title="Unsaved changes">●</span> }
               @if (!hasMapLines(g) && g.docs[0].readOnly()) { <span class="badge muted" [title]="g.docs[0].readOnly()!">read-only</span> }
               <span class="spacer"></span>
@@ -100,12 +109,13 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
               <button class="icon" title="Close: takes it out of the project, when there is one" (click)="$event.stopPropagation(); closeFile(g)">✕</button>
             </div>
             @for (d of g.docs; track d.id) {
+            @if (showDoc(g, d)) {
             <div class="map-block" [class.drop-target]="dropOn() === d.id" (dragover)="overMap($event, d)" (dragleave)="leave($event, d.id)" (drop)="dropOnMap($event, d)">
             @if (hasMapLines(g)) {
               <div class="map-head" [class.selected]="isSelected(d)" (click)="store.select({ docId: d.id, kind: 'document' })"
                 [title]="'The map ' + d.name() + ' in ' + d.fileLabel() + (d.readOnly() ? '' : '. Drag it onto another file to move it there')"
                 [attr.draggable]="!d.readOnly()" (dragstart)="dragMap($event, d)" (dragend)="dragEnd()">
-                <span class="map-name">{{ d.name() }}</span>
+                <span class="map-name">@for (p of parts(d.name() ?? ''); track $index) {@if (p.match) {<mark>{{ p.text }}</mark>} @else {{{ p.text }}}}</span>
                 @if (d.newInFile()) { <span class="badge muted" title="Saving writes it into the file">new</span> }
                 @else if (d.dirty()) { <span class="dirty" title="Unsaved changes">●</span> }
                 @if (d.readOnly()) { <span class="badge muted" [title]="d.readOnly()!">read-only</span> }
@@ -120,14 +130,16 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
                 }
               </div>
             }
+            @if (wholeDoc(g, d)) {
             <button class="nav-item sub" [class.selected]="isSelected(d)" (click)="store.select({ docId: d.id, kind: 'document' })">
               <small>{{ d.format() === 'json' ? '$schema, $comment, global rules' : '$comment, global rules' }}</small>
             </button>
-            @for (m of modelsOf(d); track m) {
+            }
+            @for (m of visibleModels(g, d); track m) {
               <button class="nav-item sub" [class.selected]="isSelected(d, m)" (click)="store.select({ docId: d.id, kind: 'model', name: m })"
                 [attr.draggable]="!d.readOnly()" (dragstart)="dragModel($event, d, m)" (dragend)="dragEnd()"
                 [title]="d.readOnly() ? m : m + ': drag it onto another map to move it there (merged if that map has it too)'">
-                <span>{{ m }}</span>
+                <span>@for (p of parts(m); track $index) {@if (p.match) {<mark>{{ p.text }}</mark>} @else {{{ p.text }}}}</span>
                 @if (extendsOf(d, m); as parent) { <small>extends {{ parent }}</small> }
                 <span class="spacer"></span>
                 @if (modelCounts().get(d.id + '/' + m); as c) {
@@ -136,7 +148,7 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
                 }
               </button>
             }
-            @if (!d.readOnly()) {
+            @if (!d.readOnly() && !filtering()) {
               <div class="add-row add-model">
                 <input [attr.list]="typesListId + '-' + d.id" placeholder="model type…" [title]="'Add a model type to ' + d.label()"
                   [value]="newModels()[d.id] ?? ''" (input)="setNewModel(d.id, $any($event.target).value)" (keydown.enter)="addModel(d.id)" />
@@ -148,7 +160,8 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
             }
             </div>
             }
-            @if (canAddMap(g)) {
+            }
+            @if (canAddMap(g) && !filtering()) {
               <div class="add-row add-map">
                 <input [placeholder]="g.docs[0].format() === 'ts' ? 'map name, e.g. adminMetadata' : 'map name, e.g. AdminJson'"
                   [title]="'Add another metadata map to ' + g.docs[0].fileLabel()" [value]="newMaps()[g.key] ?? ''"
@@ -157,9 +170,12 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
               </div>
             }
           </div>
+          }
         } @empty {
           <div class="hint">No metadata open. Open JSON files, or TypeScript or C# files that hold metadata, or start a new one.</div>
         }
+
+        @if (nothingMatches()) { <div class="hint">No model type, map or file matches “{{ filter().trim() }}”. Esc clears the search.</div> }
 
         <div class="nav-title">Sources <span class="count">{{ store.sources().length }}</span></div>
         @for (s of store.sources(); track s.path) {
@@ -314,6 +330,7 @@ export class App {
         case 'discardAll': return void this.store.discardAll();
         case 'closeProject': return void this.store.closeProject();
         case 'resetLayout': return this.resetLayout();
+        case 'findInSidebar': return this.focusSearch();
         case 'addSource': return void this.store.addSources();
         case 'reloadSources': return void this.store.reloadSources();
         case 'openRecent': return void (arg && this.store.openPath(arg));
@@ -427,6 +444,89 @@ export class App {
 
   async addMap(g: FileGroup): Promise<void> {
     if (await this.store.addMap(g.docs[g.docs.length - 1], this.newMaps()[g.key] ?? '')) this.setNewMap(g.key, '');
+  }
+
+  // ---- Finding model types and maps: the sidebar's search field
+
+  /** What's typed in the search field; empty: everything shows. */
+  readonly filter = signal('');
+  private readonly needle = computed(() => this.filter().trim().toLowerCase());
+  readonly filtering = computed(() => this.needle() !== '');
+  private readonly searchBox = viewChild<ElementRef<HTMLInputElement>>('search');
+
+  private hit(text: string | undefined): boolean {
+    return !!text && text.toLowerCase().includes(this.needle());
+  }
+
+  /** A map shows in full when nothing is searched for, or its name or its file's name matches. */
+  wholeDoc(g: FileGroup, d: MetadataDocument): boolean {
+    return !this.filtering() || this.hit(g.docs[0].fileLabel()) || (this.hasMapLines(g) && this.hit(d.name()));
+  }
+
+  /** A map's model types that show: all of them, or the ones whose names match. */
+  visibleModels(g: FileGroup, d: MetadataDocument): string[] {
+    const all = this.modelsOf(d);
+    return this.wholeDoc(g, d) ? all : all.filter((m) => this.hit(m));
+  }
+
+  showDoc(g: FileGroup, d: MetadataDocument): boolean {
+    return this.wholeDoc(g, d) || this.visibleModels(g, d).length > 0;
+  }
+
+  showGroup(g: FileGroup): boolean {
+    return g.docs.some((d) => this.showDoc(g, d));
+  }
+
+  readonly modelTotal = computed(() => this.store.documents().reduce((n, d) => n + this.modelsOf(d).length, 0));
+  /** The model types that show while searching (a matching map's or file's count in full). */
+  readonly matchCount = computed(() =>
+    this.fileGroups().reduce((n, g) => n + g.docs.reduce((m, d) => m + (this.showDoc(g, d) ? this.visibleModels(g, d).length : 0), 0), 0),
+  );
+  readonly nothingMatches = computed(() => this.filtering() && !this.fileGroups().some((g) => this.showGroup(g)));
+
+  /** A name in pieces, the parts that match the search marked. */
+  parts(text: string): { text: string; match: boolean }[] {
+    const needle = this.needle();
+    if (!needle) return [{ text, match: false }];
+    const result: { text: string; match: boolean }[] = [];
+    const lower = text.toLowerCase();
+    let at = 0;
+    for (let i = lower.indexOf(needle); i >= 0; i = lower.indexOf(needle, at)) {
+      if (i > at) result.push({ text: text.slice(at, i), match: false });
+      result.push({ text: text.slice(i, i + needle.length), match: true });
+      at = i + needle.length;
+    }
+    if (at < text.length) result.push({ text: text.slice(at), match: false });
+    return result;
+  }
+
+  /** View → Find Model Type or Map (Ctrl+Shift+F). */
+  focusSearch(): void {
+    const input = this.searchBox()?.nativeElement;
+    input?.focus();
+    input?.select();
+  }
+
+  /** Esc: clears the search; with nothing in it, leaves the field. */
+  clearFilter(event: Event): void {
+    if (this.filter()) {
+      event.preventDefault();
+      this.filter.set('');
+    } else {
+      (event.target as HTMLInputElement).blur();
+    }
+  }
+
+  /** Enter: opens the first model type that shows, or else the first map. */
+  openFirstMatch(): void {
+    for (const g of this.fileGroups()) {
+      for (const d of g.docs) {
+        if (!this.showDoc(g, d)) continue;
+        const model = this.visibleModels(g, d)[0];
+        this.store.select(model ? { docId: d.id, kind: 'model', name: model } : { docId: d.id, kind: 'document' });
+        return;
+      }
+    }
   }
 
   // ---- Dragging model types onto maps, and maps onto files

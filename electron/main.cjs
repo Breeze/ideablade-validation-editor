@@ -349,6 +349,7 @@ const buildMenu = () => Menu.buildFromTemplate([
     // Electron's View menu, plus Reset Layout (the splitters' widths back to their defaults).
     label: '&View',
     submenu: [
+      { label: '&Find Model Type or Map…', accelerator: 'CmdOrCtrl+Shift+F', click: sendMenu('findInSidebar') },
       { label: 'Reset &Layout', click: sendMenu('resetLayout') },
       { type: 'separator' },
       { role: 'reload' },
