@@ -75,6 +75,12 @@ export interface ProjectState {
   regexTests: Record<string, RegexTestSet>;
 }
 
+/** The sidebar's and the right pane's widths in pixels; a missing one is at its default. */
+export interface PaneLayout {
+  sidebar?: number;
+  side?: number;
+}
+
 export interface EditorHost {
   openFile(title: string): Promise<OpenedFile[]>;
   readFile(path: string): Promise<OpenedFile>;
@@ -87,6 +93,8 @@ export interface EditorHost {
   chooseSavePath(suggestion: string, projectDir?: string): Promise<string | undefined>;
   readTsMetadata(text: string, fileName: string): Promise<TsMetadata[]>;
   writeTsMetadata(text: string, fileName: string, name: string, json: JsonObject): Promise<string>;
+  /** The TS file with another metadata map added at the end (and the type's import, if missing). */
+  insertTsMetadata(text: string, fileName: string, name: string, json: JsonObject): Promise<string>;
   newTsMetadata(name: string, json: JsonObject): Promise<string>;
   /** The *.ivproj in the folder of a file, or in the nearest folder above that has one. */
   findProject(filePath: string): Promise<string | undefined>;
@@ -108,6 +116,9 @@ export interface EditorHost {
   /** What was selected in the sidebar for a workspace (a user setting, kept with the window's place). */
   getSelection(key: string): Promise<SavedSelection | undefined>;
   saveSelection(key: string, selection: SavedSelection): void;
+  /** The panes' widths as the user left them (the splitters), kept with the window's place. */
+  getLayout(): Promise<PaneLayout | undefined>;
+  saveLayout(layout: PaneLayout): void;
   /** Whether a project is open, for File → Close Project. */
   setProjectOpen(open: boolean): void;
   /** The project was closed: nothing to reopen at the next start. */
@@ -136,6 +147,7 @@ const browserHost: EditorHost = {
   chooseSavePath: async () => undefined,
   readTsMetadata: noFileSystem,
   writeTsMetadata: noFileSystem,
+  insertTsMetadata: noFileSystem,
   newTsMetadata: noFileSystem,
   findProject: async () => undefined,
   readProject: noFileSystem,
@@ -152,6 +164,8 @@ const browserHost: EditorHost = {
   setTheme: () => {},
   getSelection: async () => undefined,
   saveSelection: () => {},
+  getLayout: async () => undefined,
+  saveLayout: () => {},
   setProjectOpen: () => {},
   projectClosed: () => {},
   close: () => window.close(),

@@ -170,11 +170,14 @@ code { font-family: var(--mono); font-size: 13px; background: var(--code-bg); pa
 .toolbar { display: flex; gap: 6px; align-items: center; padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--border); }
 .toolbar .sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
 .toolbar .file { color: var(--muted); font-size: 13px; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; }
-.layout { flex: 1; display: grid; grid-template-columns: 300px minmax(460px, 1fr) minmax(400px, 38%); min-height: 0; }
+/* The columns' widths come from app.ts (gridColumns): sidebar | splitter | middle | splitter | right pane. */
+.layout { flex: 1; display: grid; grid-template-columns: 300px 5px minmax(460px, 1fr) 5px 38%; min-height: 0; }
+.splitter { cursor: col-resize; background: var(--border); opacity: 0.5; touch-action: none; }
+.splitter:hover, .splitter:active { background: var(--accent); opacity: 1; }
 .statusbar { display: flex; gap: 8px; padding: 3px 10px; font-size: 13px; color: var(--muted); background: var(--panel); border-top: 1px solid var(--border); }
 
 /* Sidebar */
-.sidebar { overflow-y: auto; padding: 8px; border-right: 1px solid var(--border); background: var(--sidebar-bg); }
+.sidebar { overflow-y: auto; padding: 8px; background: var(--sidebar-bg); }
 .nav-title { margin: 14px 4px 4px; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); display: flex; gap: 6px; }
 .nav-title .count { font-weight: normal; }
 .nav-item { display: flex; gap: 6px; align-items: baseline; width: 100%; text-align: left; border: none; background: transparent; padding: 4px 8px; border-radius: 4px; flex-wrap: wrap; }
@@ -186,7 +189,7 @@ code { font-family: var(--mono); font-size: 13px; background: var(--code-bg); pa
 .add-row button { white-space: nowrap; }
 .source { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px; border-radius: 4px; }
 .source:hover { background: var(--hover); }
-.source-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; }
+.source-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: calc(100% - 90px); }
 .source-detail { width: 100%; font-size: 12px; color: var(--muted); padding-left: 52px; }
 .source.failed .source-name { color: var(--error); }
 .setting { margin: 4px; }
@@ -237,7 +240,7 @@ fieldset { min-width: 0; }
 .inline-issue.info { color: var(--info); background: var(--info-soft); }
 
 /* Right-hand panels */
-.side { display: flex; flex-direction: column; border-left: 1px solid var(--border); min-height: 0; background: var(--panel); }
+.side { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--panel); }
 .tabs { display: flex; border-bottom: 1px solid var(--border); }
 .tabs button { border: none; border-radius: 0; border-bottom: 2px solid transparent; padding: 7px 14px; background: transparent; display: flex; gap: 6px; align-items: center; }
 .tabs button.active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
@@ -273,10 +276,16 @@ app-expression-input { display: block; margin-top: 2px; }
 .doc.active { background: var(--doc-active); }
 .doc-head { display: flex; align-items: center; gap: 6px; padding: 4px 6px; cursor: pointer; font-weight: 600; }
 .doc-head:hover { background: var(--hover); border-radius: 5px; }
-.doc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 190px; }
+.doc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
 .dirty { color: var(--accent); }
 .nav-item.sub { padding-left: 22px; }
 .add-row.add-model { margin: 2px 0 6px 22px; }
+.map-head { display: flex; align-items: center; gap: 6px; padding: 3px 8px 1px 14px; cursor: pointer; border-radius: 4px; }
+.map-head:hover { background: var(--hover, var(--accent-soft)); }
+.map-head .map-name { font-family: var(--mono); font-size: 13px; color: var(--syn-variable); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.add-row.add-map { margin: 4px 0 8px 14px; }
+.add-row.add-map input { font-size: 13px; padding: 2px 6px; }
+.add-row.add-map button { font-size: 13px; padding: 1px 8px; white-space: nowrap; }
 .add-row.add-model input { font-size: 13px; padding: 2px 6px; }
 .add-row.add-model button { font-size: 13px; padding: 1px 8px; }
 .banner { background: var(--info-soft); color: var(--info); border-radius: 4px; padding: 6px 10px; margin: 6px 0; font-size: 13px; }

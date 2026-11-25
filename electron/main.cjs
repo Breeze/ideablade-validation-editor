@@ -3,7 +3,7 @@ const { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen } = requi
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { withTypeScriptModels } = require('./typescript-models.cjs');
-const { readTsMetadata, writeTsMetadata, newTsMetadataFile } = require('./typescript-metadata.cjs');
+const { readTsMetadata, writeTsMetadata, insertTsMetadata, newTsMetadataFile } = require('./typescript-metadata.cjs');
 const { PROJECT_EXTENSION, projectFileName, findProject, readProject, writeProject, watchProjectFolders } = require('./project.cjs');
 const {
   loadWindowState,
@@ -17,6 +17,8 @@ const {
   clearRecentProjects,
   getLastSaveFolder,
   setLastSaveFolder,
+  getLayout,
+  setLayout,
 } = require('./window-state.cjs');
 
 let win;
@@ -113,6 +115,7 @@ ipcMain.handle('file:choose-save-path', async (_e, suggestion, projectDir) => {
 // TypeScript metadata needs the TypeScript compiler, so the renderer asks for it here. These work on text only.
 ipcMain.handle('ts:read-metadata', (_e, text, fileName) => readTsMetadata(text, fileName));
 ipcMain.handle('ts:write-metadata', (_e, text, fileName, name, json) => writeTsMetadata(text, fileName, name, json));
+ipcMain.handle('ts:insert-metadata', (_e, text, fileName, name, json) => insertTsMetadata(text, fileName, name, json));
 ipcMain.handle('ts:new-metadata', (_e, name, json) => newTsMetadataFile(name, json));
 
 // The project file (*.ivproj, see project.cjs): the renderer works with absolute paths.
@@ -244,6 +247,8 @@ ipcMain.handle('file:open-source', async () => {
 ipcMain.on('app:set-title', (_e, title) => win.setTitle(title));
 
 // What was selected in the sidebar, per project (or first metadata file), kept with the window's place.
+ipcMain.handle('ui:get-layout', () => getLayout(windowStateFile()));
+ipcMain.on('ui:set-layout', (_e, layout) => setLayout(windowStateFile(), layout));
 ipcMain.handle('ui:get-selection', (_e, key) => getSelection(windowStateFile(), key));
 ipcMain.on('ui:set-selection', (_e, key, selection) => setSelection(windowStateFile(), key, selection));
 

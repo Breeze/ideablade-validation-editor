@@ -15,6 +15,30 @@ interface Counts {
   errors: number;
   warnings: number;
 }
+/** A metadata file in the sidebar: its maps (one for JSON; one or more for TS and C#), or an unsaved document. */
+interface FileGroup {
+  key: string;
+  docs: MetadataDocument[];
+}
+
+const SIDEBAR_DEFAULT = 300;
+const SIDEBAR_MIN = 200;
+const SIDE_MIN = 320;
+const MAIN_MIN = 460;
+const SPLITTER = 5;
+
+/**
+ * The sidebar's and the right pane's widths, made to fit: each at least its minimum, and the middle column left at
+ * least its own. When the window is too narrow for what was set, the right pane gives way first, then the sidebar.
+ */
+function fitWidths(windowWidth: number, sidebar: number, side: number): { sidebar: number; side: number } {
+  sidebar = Math.max(SIDEBAR_MIN, Math.round(sidebar));
+  side = Math.max(SIDE_MIN, Math.round(side));
+  const room = windowWidth - MAIN_MIN - 2 * SPLITTER;
+  if (sidebar + side > room) side = Math.max(SIDE_MIN, room - sidebar);
+  if (sidebar + side > room) sidebar = Math.max(SIDEBAR_MIN, room - side);
+  return { sidebar, side };
+}
 
 @Component({
   selector: 'app-root',
@@ -43,7 +67,7 @@ interface Counts {
       <span class="file" [title]="store.filePath() ?? ''">{{ store.filePath() ?? (store.active() ? 'Not saved yet' : '') }}</span>
     </header>
 
-    <div class="layout">
+    <div class="layout" [style.grid-template-columns]="gridColumns()">
       <nav class="sidebar">
         <div class="nav-title">Project</div>
         @if (store.project(); as p) {
@@ -62,19 +86,31 @@ interface Counts {
         }
 
         <div class="nav-title">Metadata <span class="count">{{ store.documents().length }}</span></div>
-        @for (d of store.documents(); track d.id) {
-          <div class="doc" [class.active]="d === store.active()">
-            <div class="doc-head" [title]="d.path() ?? 'Not saved yet'" (click)="store.select({ docId: d.id, kind: 'document' })">
-              <span class="badge kind">{{ formatLabels[d.format()] }}</span>
-              <span class="doc-name">{{ d.label() }}</span>
-              @if (d.dirty()) { <span class="dirty" title="Unsaved changes">●</span> }
-              @if (d.readOnly()) { <span class="badge muted" [title]="d.readOnly()!">read-only</span> }
+        @for (g of fileGroups(); track g.key) {
+          <div class="doc" [class.active]="g.docs.includes(store.active()!)">
+            <div class="doc-head" [title]="g.docs[0].path() ?? 'Not saved yet'" (click)="store.select({ docId: g.docs[0].id, kind: 'document' })">
+              <span class="badge kind">{{ formatLabels[g.docs[0].format()] }}</span>
+              <span class="doc-name">{{ g.docs[0].fileLabel() }}</span>
+              @if (groupDirty(g)) { <span class="dirty" title="Unsaved changes">●</span> }
+              @if (!hasMapLines(g) && g.docs[0].readOnly()) { <span class="badge muted" [title]="g.docs[0].readOnly()!">read-only</span> }
               <span class="spacer"></span>
-              @if (docCounts().get(d.id); as c) {
-                @if (c.errors) { <span class="badge error-badge">{{ c.errors }}</span> }
-              }
-              <button class="icon" title="Close: takes it out of the project, when there is one" (click)="$event.stopPropagation(); store.closeDocument(d.id)">✕</button>
+              @if (groupErrors(g); as errors) { <span class="badge error-badge">{{ errors }}</span> }
+              <button class="icon" title="Close: takes it out of the project, when there is one" (click)="$event.stopPropagation(); closeFile(g)">✕</button>
             </div>
+            @for (d of g.docs; track d.id) {
+            @if (hasMapLines(g)) {
+              <div class="map-head" [class.selected]="isSelected(d)" [title]="'The map ' + d.name() + ' in ' + d.fileLabel()" (click)="store.select({ docId: d.id, kind: 'document' })">
+                <span class="map-name">{{ d.name() }}</span>
+                @if (d.newInFile()) { <span class="badge muted" title="Saving writes it into the file">new</span> }
+                @else if (d.dirty()) { <span class="dirty" title="Unsaved changes">●</span> }
+                @if (d.readOnly()) { <span class="badge muted" [title]="d.readOnly()!">read-only</span> }
+                <span class="spacer"></span>
+                @if (g.docs.length > 1) {
+                  @if (docCounts().get(d.id)?.errors; as errors) { <span class="badge error-badge">{{ errors }}</span> }
+                }
+                @if (d.newInFile()) { <button class="icon" title="Remove this new map (it isn't in the file yet)" (click)="$event.stopPropagation(); store.closeDocument(d.id)">✕</button> }
+              </div>
+            }
             <button class="nav-item sub" [class.selected]="isSelected(d)" (click)="store.select({ docId: d.id, kind: 'document' })">
               <small>{{ d.format() === 'json' ? '$schema, $comment, global rules' : '$comment, global rules' }}</small>
             </button>
@@ -97,6 +133,15 @@ interface Counts {
                   @for (t of missingTypesOf(d); track t) { <option [value]="t"></option> }
                 </datalist>
                 <button (click)="addModel(d.id)" [disabled]="!(newModels()[d.id] ?? '').trim()">Add</button>
+              </div>
+            }
+            }
+            @if (canAddMap(g)) {
+              <div class="add-row add-map">
+                <input [placeholder]="g.docs[0].format() === 'ts' ? 'map name, e.g. adminMetadata' : 'map name, e.g. AdminJson'"
+                  [title]="'Add another metadata map to ' + g.docs[0].fileLabel()" [value]="newMaps()[g.key] ?? ''"
+                  (input)="setNewMap(g.key, $any($event.target).value)" (keydown.enter)="addMap(g)" />
+                <button (click)="addMap(g)" [disabled]="!(newMaps()[g.key] ?? '').trim()">Add map</button>
               </div>
             }
           </div>
@@ -134,6 +179,8 @@ interface Counts {
           </select>
         </label>
       </nav>
+      <div class="splitter" title="Drag to make the sidebar wider or narrower; double-click for its default width"
+        (pointerdown)="startResize('sidebar', $event)" (dblclick)="resetWidth('sidebar')"></div>
 
       <main class="main">
         @if (!store.active()) {
@@ -149,6 +196,8 @@ interface Counts {
           <app-document-editor />
         }
       </main>
+      <div class="splitter" title="Drag to make this pane wider or narrower; double-click for its default width"
+        (pointerdown)="startResize('side', $event)" (dblclick)="resetWidth('side')"></div>
 
       <aside class="side">
         <div class="tabs">
@@ -209,6 +258,12 @@ export class App {
   readonly docCounts = computed(() => this.count((i) => i.docId));
 
   constructor() {
+    // The panes' widths as they were left, and kept fitting the window as it's resized.
+    void host.getLayout().then((layout) => {
+      if (layout?.sidebar) this.sidebarWidth.set(layout.sidebar);
+      if (layout?.side) this.sideWidth.set(layout.side);
+    });
+    window.addEventListener('resize', () => this.windowWidth.set(window.innerWidth));
     effect(() => host.setTitle(this.store.title()));
     // The colour theme: <html data-theme>, and Electron's native theme for the window frame, menus and dialogs.
     effect(() => {
@@ -297,6 +352,97 @@ export class App {
   addModel(docId: string): void {
     this.store.addModel(this.newModels()[docId] ?? '', docId);
     this.setNewModel(docId, '');
+  }
+
+  // ---- Metadata files in the sidebar: a TS or C# file's maps together under the file
+
+  /** The documents by file, in their order; an unsaved document is a group of its own. */
+  readonly fileGroups = computed(() => {
+    const groups: FileGroup[] = [];
+    for (const d of this.store.documents()) {
+      const key = d.path()?.toLowerCase() ?? d.id;
+      const group = groups.find((g) => g.key === key);
+      if (group) group.docs.push(d);
+      else groups.push({ key, docs: [d] });
+    }
+    return groups;
+  });
+  /** What's typed in each TS or C# file's "map name" field, by file. */
+  readonly newMaps = signal<Record<string, string>>({});
+
+  /** Saved TS and C# maps show their name on a line of their own, under the file name. */
+  hasMapLines(g: FileGroup): boolean {
+    return !!g.docs[0].path() && g.docs[0].format() !== 'json';
+  }
+
+  canAddMap(g: FileGroup): boolean {
+    return this.hasMapLines(g);
+  }
+
+  groupDirty(g: FileGroup): boolean {
+    return g.docs.some((d) => d.dirty());
+  }
+
+  groupErrors(g: FileGroup): number {
+    return g.docs.reduce((sum, d) => sum + (this.docCounts().get(d.id)?.errors ?? 0), 0);
+  }
+
+  setNewMap(key: string, value: string): void {
+    this.newMaps.update((all) => ({ ...all, [key]: value }));
+  }
+
+  async addMap(g: FileGroup): Promise<void> {
+    if (await this.store.addMap(g.docs[g.docs.length - 1], this.newMaps()[g.key] ?? '')) this.setNewMap(g.key, '');
+  }
+
+  /** The file's ✕: closes each of its maps, asking about unsaved changes; stops at a Cancel. */
+  async closeFile(g: FileGroup): Promise<void> {
+    for (const d of g.docs) {
+      await this.store.closeDocument(d.id);
+      if (this.store.documents().includes(d)) return; // cancelled
+    }
+  }
+
+  // ---- Splitters: the sidebar's and the right pane's widths, dragged, kept with the window's place
+
+  readonly sidebarWidth = signal(SIDEBAR_DEFAULT);
+  readonly sideWidth = signal(0); // 0: not set yet, 38% of the window
+  readonly gridColumns = computed(() => {
+    const side = this.sideWidth() || Math.round(this.windowWidth() * 0.38);
+    const fitted = fitWidths(this.windowWidth(), this.sidebarWidth(), side);
+    return `${fitted.sidebar}px ${SPLITTER}px minmax(${MAIN_MIN}px, 1fr) ${SPLITTER}px ${fitted.side}px`;
+  });
+  private readonly windowWidth = signal(window.innerWidth);
+
+  startResize(which: 'sidebar' | 'side', event: PointerEvent): void {
+    const handle = event.target as HTMLElement;
+    handle.setPointerCapture(event.pointerId);
+    const startX = event.clientX;
+    const start = fitWidths(this.windowWidth(), this.sidebarWidth(), this.sideWidth() || Math.round(this.windowWidth() * 0.38));
+    const move = (e: PointerEvent) => {
+      const dx = e.clientX - startX;
+      if (which === 'sidebar') {
+        this.sidebarWidth.set(fitWidths(this.windowWidth(), start.sidebar + dx, start.side).sidebar);
+      } else {
+        this.sideWidth.set(fitWidths(this.windowWidth(), start.sidebar, start.side - dx).side);
+      }
+    };
+    const end = () => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', end);
+      handle.removeEventListener('pointercancel', end);
+      host.saveLayout({ sidebar: this.sidebarWidth(), side: this.sideWidth() || undefined });
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
+  }
+
+  /** Double-clicking a splitter puts that pane back to its default width. */
+  resetWidth(which: 'sidebar' | 'side'): void {
+    if (which === 'sidebar') this.sidebarWidth.set(SIDEBAR_DEFAULT);
+    else this.sideWidth.set(0);
+    host.saveLayout({ sidebar: this.sidebarWidth(), side: this.sideWidth() || undefined });
   }
 
   setCustom(text: string): void {

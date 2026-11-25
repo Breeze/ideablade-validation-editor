@@ -179,6 +179,39 @@ export function writeCsMetadata(text: string, name: string, json: JsonObject): s
   return text.slice(0, literal.start) + replacement + text.slice(literal.end);
 }
 
+/**
+ * The file with another metadata string constant, `name`, holding `json`: right after the last metadata string it has,
+ * in the same class and with the same indentation. Where the file has the typed style (a ModelValidationMetadataMap
+ * parsed from the JSON, as new files have), the new constant gets that too: `AdminJson` -> `AdminMetadata`.
+ */
+export function insertCsMetadata(text: string, name: string, json: JsonObject): string {
+  if (!/^[A-Za-z_]\w*$/.test(name)) throw new Error(`'${name}' isn't a C# name: letters, digits and _, not starting with a digit.`);
+  if (new RegExp(`\\b${name}\\b`).test(text)) throw new Error(`The file already uses the name '${name}'.`);
+  const literals = findLiterals(text).filter((l) => {
+    try {
+      return isMetadata(parseJsonWithComments(l.content).value);
+    } catch {
+      return false;
+    }
+  });
+  const last = literals[literals.length - 1];
+  if (!last) throw new Error('The file has no metadata string to add one next to.');
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const lineStart = text.lastIndexOf('\n', last.start - 1) + 1;
+  const indent = /^[ \t]*/.exec(text.slice(lineStart))![0];
+  // After the statement the string ends, or after the typed map parsed from it when that follows.
+  let after = text.indexOf(';', last.end) + 1;
+  const parsed = new RegExp(`ModelValidationMetadataMap\\.Parse\\(\\s*${last.name}\\s*\\)[^;]*;`).exec(text.slice(after, after + 600));
+  if (parsed) after += parsed.index + parsed[0].length;
+  const lineEnd = text.slice(after).search(/\r?\n|$/) + after;
+  let block = `${eol}${eol}${indent}public const string ${name} = ${rawLiteral(json, indent + '    ', eol)};`;
+  const typedName = `${name.replace(/Json$/, '') || name}Metadata`;
+  if (parsed && !new RegExp(`\\b${typedName}\\b`).test(text)) {
+    block += `${eol}${eol}${indent}public static readonly ModelValidationMetadataMap ${typedName} = ModelValidationMetadataMap.Parse(${name});`;
+  }
+  return text.slice(0, lineEnd) + block + text.slice(lineEnd);
+}
+
 /** `client-validation-metadata.cs` -> `ClientValidationMetadata` */
 export function pascalCaseFromFile(path: string): string {
   const base = (path.split(/[\\/]/).pop() ?? 'ValidationMetadata').replace(/\.[^.]*$/, '').replace(/\.metadata$/i, 'Metadata');

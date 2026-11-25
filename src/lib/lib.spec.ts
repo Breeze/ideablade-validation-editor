@@ -4,7 +4,7 @@ import breezeMetadata from '../../samples/temphire.breeze-metadata.json';
 import tempHireMetadata from '../../samples/temphire.validation.metadata.json';
 import { checkDocument, checkRegexFlags, serverUnsupported } from './check';
 import { complete, typeFromText } from './completion';
-import { newCsMetadataFile, pascalCaseFromFile, readCsMetadata, writeCsMetadata } from './cs-metadata';
+import { insertCsMetadata, newCsMetadataFile, pascalCaseFromFile, readCsMetadata, writeCsMetadata } from './cs-metadata';
 import { type MetadataDoc, lineOfPath, mergeDocs, setIn, stringify } from './doc';
 import { COMMON_PATTERNS, analyzeRegex, regexTestKey, splitPattern, testSamples } from './regex';
 import { buildCatalog, camelCase, parseBreeze, parseCSharp, parseCSharpApp, parseSource } from './sources';
@@ -290,6 +290,24 @@ describe('metadata in C#', () => {
     expect(written).toContain('        }\r\n        """;');
     expect(written).not.toContain('\n\n        {');
     expect(readCsMetadata(written)).toEqual([{ name: 'Json', json, hasComments: false }]);
+  });
+
+  it('adds another map next to the last one, in the same class, typed when the file is', () => {
+    const typed = newCsMetadataFile('ClientMetadata', { A: {} });
+    const added = insertCsMetadata(typed, 'AdminJson', { B: { properties: {} } });
+    expect(readCsMetadata(added).map((m) => m.name)).toEqual(['Json', 'AdminJson']);
+    expect(readCsMetadata(added)[1].json).toEqual({ B: { properties: {} } });
+    // after the first map's typed member, inside the class, with its own typed member
+    const lines = added.split('\n');
+    expect(lines.findIndex((l) => l.includes('public const string AdminJson'))).toBeGreaterThan(lines.findIndex((l) => l.includes('Metadata = ModelValidationMetadataMap.Parse(Json)')));
+    expect(added).toContain('    public static readonly ModelValidationMetadataMap AdminMetadata = ModelValidationMetadataMap.Parse(AdminJson);');
+    expect(added.trimEnd().endsWith('}')).toBe(true);
+    // a plain file (no typed members) gets just the string
+    const plain = ['public static class M', '{', '    public const string Json = """', '        {"A": {}}', '        """;', '}', ''].join('\n');
+    const plainAdded = insertCsMetadata(plain, 'Other', { C: {} });
+    expect(plainAdded).not.toContain('ModelValidationMetadataMap');
+    expect(readCsMetadata(plainAdded).map((m) => m.name)).toEqual(['Json', 'Other']);
+    expect(() => insertCsMetadata(plain, 'Json', {})).toThrow(/already uses the name 'Json'/);
   });
 
   it('writes a new file, and reads verbatim strings', () => {

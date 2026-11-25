@@ -2,7 +2,7 @@
 // build doesn't bundle.
 const assert = require('node:assert/strict');
 const { describe, it } = require('node:test');
-const { readTsMetadata, writeTsMetadata, newTsMetadataFile } = require('./typescript-metadata.cjs');
+const { readTsMetadata, writeTsMetadata, insertTsMetadata, newTsMetadataFile } = require('./typescript-metadata.cjs');
 
 // As TempHire's client-validation-metadata.ts, with Windows line endings.
 const file = [
@@ -70,6 +70,25 @@ describe('metadata in TypeScript', () => {
     // imported already (as TempHire's file does): only the object changes
     assert.ok(writeTsMetadata(file, 'client.ts', 'clientValidationMetadata', json).startsWith(file.split('\r\n')[0]));
     assert.equal(writeTsMetadata(file, 'client.ts', 'clientValidationMetadata', json).split("from 'ideablade-validation'").length, 2);
+  });
+
+  it('adds another map at the end of a file, typed, keeping the rest and its line endings', () => {
+    const added = insertTsMetadata(file, 'client.ts', 'adminValidationMetadata', { Admin: { properties: { name: { required: true } } } });
+    assert.ok(added.startsWith(file.trimEnd()));
+    const expected = [
+      'export const adminValidationMetadata: ModelValidationMetadataMap = {',
+      '  Admin: {',
+      '    properties: {',
+      '      name: { required: true },',
+      '    },',
+      '  },',
+      '};',
+      '',
+    ].join('\r\n');
+    assert.ok(added.endsWith('\r\n\r\n' + expected), added.slice(-300));
+    assert.deepEqual(readTsMetadata(added, 'client.ts').map((m) => m.name), ['clientValidationMetadata', 'adminValidationMetadata']);
+    assert.throws(() => insertTsMetadata(file, 'client.ts', 'other', {}), /already uses the name 'other'/);
+    assert.throws(() => insertTsMetadata(file, 'client.ts', '2nd', {}), /isn't a TypeScript name/);
   });
 
   it('writes a new file', () => {

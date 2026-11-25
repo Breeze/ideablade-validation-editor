@@ -144,6 +144,20 @@ function setLastSaveFolder(file, folder) {
   updateFile(file, (state) => ({ ...state, lastSaveFolder: folder }));
 }
 
+// The panes' widths (the splitters): the sidebar's and the right pane's, in pixels. User settings too.
+
+/** The saved widths: whole, positive numbers only; a missing one is at its default. */
+function getLayout(file) {
+  const layout = readFile(file).layout;
+  if (!layout || typeof layout !== 'object') return undefined;
+  const width = (v) => (Number.isFinite(v) && v > 0 ? Math.round(v) : undefined);
+  return { sidebar: width(layout.sidebar), side: width(layout.side) };
+}
+
+function setLayout(file, layout) {
+  updateFile(file, (state) => ({ ...state, layout: { sidebar: layout?.sidebar, side: layout?.side } }));
+}
+
 module.exports = {
   loadWindowState,
   trackWindowState,
@@ -157,5 +171,7 @@ module.exports = {
   clearRecentProjects,
   getLastSaveFolder,
   setLastSaveFolder,
+  getLayout,
+  setLayout,
   DEFAULT_WINDOW_SIZE: DEFAULT,
 };

@@ -187,6 +187,20 @@ function withMetadataImport(text, fileName) {
   return text.slice(0, at) + METADATA_IMPORT + eol + (imports.length ? '' : eol) + text.slice(at);
 }
 
+/**
+ * The file with another metadata map, `name`, holding `json`: an exported, typed constant added at the end, in the
+ * file's line endings, with the type's import added if the file lacks it.
+ */
+function insertTsMetadata(text, fileName, name, json) {
+  if (!/^[A-Za-z_$][\w$]*$/.test(name)) throw new Error(`'${name}' isn't a TypeScript name: letters, digits, _ and $, not starting with a digit.`);
+  if (new RegExp(`(^|[^\\w$])${name.replace(/\$/g, '\\$')}($|[^\\w$])`).test(text)) throw new Error(`The file already uses the name '${name}'.`);
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  let literal = format(json, '', 0, 0, undefined);
+  if (eol === '\r\n') literal = literal.replace(/\n/g, '\r\n');
+  const body = text.replace(/\s*$/, '');
+  return withMetadataImport(`${body}${body ? eol + eol : ''}export const ${name}: ModelValidationMetadataMap = ${literal};${eol}`, fileName);
+}
+
 /** A new TypeScript file holding one metadata map, typed, with the type's import. */
 function newTsMetadataFile(name, json) {
   return (
@@ -195,4 +209,4 @@ function newTsMetadataFile(name, json) {
   );
 }
 
-module.exports = { readTsMetadata, writeTsMetadata, newTsMetadataFile, formatTs: (json) => format(json, '', 0, 0, undefined) };
+module.exports = { readTsMetadata, writeTsMetadata, insertTsMetadata, newTsMetadataFile, formatTs: (json) => format(json, '', 0, 0, undefined) };

@@ -16,6 +16,8 @@ const {
   clearRecentProjects,
   getLastSaveFolder,
   setLastSaveFolder,
+  getLayout,
+  setLayout,
   DEFAULT_WINDOW_SIZE,
 } = require('./window-state.cjs');
 
@@ -94,6 +96,18 @@ describe('the window state', () => {
     assert.equal(getLastProject(file), undefined);
     assert.ok('recentProjects' in JSON.parse(fs.readFileSync(file, 'utf8'))); // the rest of the file stays
     fs.rmSync(dir, { recursive: true });
+    fs.rmSync(file, { force: true });
+  });
+
+  it("keeps the panes' widths next to the window state, whole and positive only", () => {
+    fs.rmSync(file, { force: true });
+    assert.equal(getLayout(file), undefined);
+    save({ x: 10, y: 10, width: 1600, height: 1000, maximized: false });
+    setLayout(file, { sidebar: 360.4, side: 520 });
+    assert.deepEqual(getLayout(file), { sidebar: 360, side: 520 });
+    assert.equal(loadWindowState(file, screens).width, 1600); // the rest stays
+    setLayout(file, { sidebar: -5 });
+    assert.deepEqual(getLayout(file), { sidebar: undefined, side: undefined });
     fs.rmSync(file, { force: true });
   });
 

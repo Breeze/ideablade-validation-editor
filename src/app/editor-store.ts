@@ -3,7 +3,7 @@ import { Injectable, computed, effect, signal } from '@angular/core';
 import { type ValidatorInfo, validatorCatalog } from '../lib/catalog';
 import { type Issue, checkDocument } from '../lib/check';
 import type { CompletionEnv } from '../lib/completion';
-import { newCsMetadataFile, pascalCaseFromFile, readCsMetadata, writeCsMetadata } from '../lib/cs-metadata';
+import { insertCsMetadata, newCsMetadataFile, pascalCaseFromFile, readCsMetadata, writeCsMetadata } from '../lib/cs-metadata';
 import {
   type Json,
   type MetadataDoc,
@@ -57,6 +57,8 @@ export class MetadataDocument {
   readonly readOnly = signal<string | undefined>(undefined);
   /** The TS object or C# JSON has comments inside it, which saving drops. */
   readonly hasComments = signal(false);
+  /** A map added to its TS or C# file in the editor (Add map), not written into the file yet. */
+  readonly newInFile = signal(false);
   /** JSON view text that doesn't parse (the document stays at its last valid state). */
   readonly invalidText = signal<{ text: string; error: string } | undefined>(undefined);
   /** The JSON as typed in the JSON view (or read from the file), as long as it's the current document. */
@@ -69,7 +71,8 @@ export class MetadataDocument {
     return raw && raw.doc === this.doc() ? raw.text : stringify(this.doc());
   });
   readonly dirty = computed(
-    () => !!this.invalidText() || (this.format() === 'json' ? this.jsonText() : stringify(this.doc())) !== this.saved(),
+    () =>
+      this.newInFile() || !!this.invalidText() || (this.format() === 'json' ? this.jsonText() : stringify(this.doc())) !== this.saved(),
   );
   readonly fileLabel = computed(() => (this.path() ? fileName(this.path()!) : 'Untitled'));
   /**
@@ -80,8 +83,18 @@ export class MetadataDocument {
     this.path() && this.format() !== 'json' && this.name() ? `${this.fileLabel()} › ${this.name()}` : this.fileLabel(),
   );
 
-  constructor(init: { path?: string; format?: DocFormat; name?: string; doc: MetadataDoc; text?: string; readOnly?: string; hasComments?: boolean }) {
+  constructor(init: {
+    path?: string;
+    format?: DocFormat;
+    name?: string;
+    doc: MetadataDoc;
+    text?: string;
+    readOnly?: string;
+    hasComments?: boolean;
+    newInFile?: boolean;
+  }) {
     this.path.set(init.path);
+    this.newInFile.set(!!init.newInFile);
     this.format.set(init.format ?? 'json');
     this.name.set(init.name);
     this.doc.set(init.doc);
@@ -870,12 +883,10 @@ export class EditorStore {
       }
       try {
         const current = await host.readFile(path);
-        const text =
-          format === 'ts'
-            ? await host.writeTsMetadata(current.text, path, doc.name()!, doc.doc())
-            : writeCsMetadata(current.text, doc.name()!, doc.doc());
+        const text = await this.writeMap(current.text, doc);
         await host.saveFile(path, text);
         this.rememberDiskText(path, text);
+        doc.newInFile.set(false);
       } catch (e) {
         this.status.set(`Could not save ${doc.label()}: ${(e as Error).message}`);
         return false;
@@ -906,10 +917,49 @@ export class EditorStore {
     const maps = this.documents().filter(
       (d) => d.path()?.toLowerCase() === path.toLowerCase() && d.dirty() && !d.readOnly() && !d.invalidText(),
     );
-    for (const d of maps) {
-      text = d.format() === 'ts' ? await host.writeTsMetadata(text, path, d.name()!, d.doc()) : writeCsMetadata(text, d.name()!, d.doc());
-    }
+    for (const d of maps) text = await this.writeMap(text, d);
     return text;
+  }
+
+  /** A TS or C# file's text with this map in it: rewritten where it is, or added (a map made with Add map). */
+  private async writeMap(text: string, d: MetadataDocument): Promise<string> {
+    const path = d.path()!;
+    const name = d.name()!;
+    if (d.format() === 'ts') {
+      return d.newInFile() ? host.insertTsMetadata(text, path, name, d.doc()) : host.writeTsMetadata(text, path, name, d.doc());
+    }
+    return d.newInFile() ? insertCsMetadata(text, name, d.doc()) : writeCsMetadata(text, name, d.doc());
+  }
+
+  /**
+   * Adds another, empty metadata map to a saved TS or C# file (Add map in the sidebar), named `name`: a new exported
+   * constant in TS, a new string constant in the same class in C#. It's written into the file when it's saved. False,
+   * with the reason in the status bar, when the name can't be used.
+   */
+  async addMap(fileDoc: MetadataDocument, name: string): Promise<boolean> {
+    const path = fileDoc.path();
+    const format = fileDoc.format();
+    name = name.trim();
+    if (!path || format === 'json' || !name) return false;
+    const siblings = this.documents().filter((d) => d.path()?.toLowerCase() === path.toLowerCase());
+    if (siblings.some((d) => d.name() === name)) {
+      this.status.set(`${fileName(path)} already has a map named ${name}`);
+      return false;
+    }
+    const doc = new MetadataDocument({ path, format, name, doc: {}, newInFile: true });
+    try {
+      // Checks the name against the file as it is (a valid name, not one the file already uses).
+      await this.writeMap(this.diskText(path) ?? (await host.readFile(path)).text, doc);
+    } catch (e) {
+      this.status.set((e as Error).message);
+      return false;
+    }
+    const docs = this.documents();
+    const after = docs.indexOf(siblings[siblings.length - 1]) + 1;
+    this.documents.set([...docs.slice(0, after), doc, ...docs.slice(after)]);
+    this.selection.set({ docId: doc.id, kind: 'document' });
+    this.status.set(`Added the map ${name} to ${fileName(path)}; saving writes it into the file`);
+    return true;
   }
 
   /** Saves a document to a new file; the extension picks the format: .json, .ts or .cs. */
