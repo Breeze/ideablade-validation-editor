@@ -4,7 +4,7 @@ import breezeMetadata from '../../samples/temphire.breeze-metadata.json';
 import tempHireMetadata from '../../samples/temphire.validation.metadata.json';
 import { checkDocument, checkRegexFlags, serverUnsupported } from './check';
 import { complete, typeFromText } from './completion';
-import { insertCsMetadata, newCsMetadataFile, pascalCaseFromFile, readCsMetadata, writeCsMetadata } from './cs-metadata';
+import { insertCsMetadata, newCsMetadataFile, pascalCaseFromFile, readCsMetadata, removeCsMetadata, writeCsMetadata } from './cs-metadata';
 import { type MetadataDoc, lineOfPath, mergeDocs, setIn, stringify } from './doc';
 import { COMMON_PATTERNS, analyzeRegex, regexTestKey, splitPattern, testSamples } from './regex';
 import { buildCatalog, camelCase, parseBreeze, parseCSharp, parseCSharpApp, parseSource } from './sources';
@@ -308,6 +308,18 @@ describe('metadata in C#', () => {
     expect(plainAdded).not.toContain('ModelValidationMetadataMap');
     expect(readCsMetadata(plainAdded).map((m) => m.name)).toEqual(['Json', 'Other']);
     expect(() => insertCsMetadata(plain, 'Json', {})).toThrow(/already uses the name 'Json'/);
+  });
+
+  it('removes a map with its comment and its typed member; adding then removing one gives the file back', () => {
+    const typed = newCsMetadataFile('ServerMetadata', { A: {} });
+    const two = insertCsMetadata(typed, 'AdminJson', { B: {} });
+    expect(removeCsMetadata(two, 'AdminJson')).toBe(typed);
+    const withoutFirst = removeCsMetadata(two, 'Json');
+    expect(readCsMetadata(withoutFirst).map((m) => m.name)).toEqual(['AdminJson']);
+    expect(withoutFirst).not.toContain('ModelValidationMetadataMap.Parse(Json)');
+    expect(withoutFirst).not.toContain('The metadata as JSON');
+    expect(withoutFirst).toContain('ModelValidationMetadataMap.Parse(AdminJson)');
+    expect(() => removeCsMetadata(typed, 'Nothing')).toThrow(/no metadata string 'Nothing'/);
   });
 
   it('writes a new file, and reads verbatim strings', () => {

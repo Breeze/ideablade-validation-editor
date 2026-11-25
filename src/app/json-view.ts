@@ -163,7 +163,8 @@ export class JsonView implements OnDestroy {
       const doc = this.store.active();
       if (!doc || this.shown() === 'json') return;
       const siblings = this.store.documents().filter((d) => d.path() === doc.path());
-      for (const d of siblings) d.doc(); // what the file depends on
+      for (const d of siblings) d.doc(); // what the file depends on: its maps, and the ones removed from it
+      this.store.removedMaps();
       const timer = setTimeout(() => void this.refreshFile(doc), 150);
       onCleanup(() => clearTimeout(timer));
     });

@@ -2,7 +2,7 @@
 // build doesn't bundle.
 const assert = require('node:assert/strict');
 const { describe, it } = require('node:test');
-const { readTsMetadata, writeTsMetadata, insertTsMetadata, newTsMetadataFile } = require('./typescript-metadata.cjs');
+const { readTsMetadata, writeTsMetadata, insertTsMetadata, removeTsMetadata, newTsMetadataFile } = require('./typescript-metadata.cjs');
 
 // As TempHire's client-validation-metadata.ts, with Windows line endings.
 const file = [
@@ -89,6 +89,16 @@ describe('metadata in TypeScript', () => {
     assert.deepEqual(readTsMetadata(added, 'client.ts').map((m) => m.name), ['clientValidationMetadata', 'adminValidationMetadata']);
     assert.throws(() => insertTsMetadata(file, 'client.ts', 'other', {}), /already uses the name 'other'/);
     assert.throws(() => insertTsMetadata(file, 'client.ts', '2nd', {}), /isn't a TypeScript name/);
+  });
+
+  it('removes a map with its doc comment, and adding then removing one gives the file back', () => {
+    const added = insertTsMetadata(file, 'client.ts', 'adminValidationMetadata', { Admin: {} });
+    assert.equal(removeTsMetadata(added, 'client.ts', 'adminValidationMetadata'), file);
+    const withoutFirst = removeTsMetadata(added, 'client.ts', 'clientValidationMetadata');
+    assert.deepEqual(readTsMetadata(withoutFirst, 'client.ts').map((m) => m.name), ['adminValidationMetadata']);
+    assert.ok(!withoutFirst.includes("The client's own view models"), 'its doc comment goes with it');
+    assert.ok(withoutFirst.includes('export const other = { a: 1 };'), 'the rest stays');
+    assert.throws(() => removeTsMetadata(file, 'client.ts', 'nothing'), /no metadata map 'nothing'/);
   });
 
   it('writes a new file', () => {

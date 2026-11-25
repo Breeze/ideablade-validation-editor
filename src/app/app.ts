@@ -57,7 +57,7 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
         }
       </span>
       <button (click)="store.open()" title="Ctrl+O: JSON, TypeScript or C# files">Open…</button>
-      <button (click)="store.save()" title="Ctrl+S" [disabled]="!store.active()" [class.primary]="store.active()?.dirty()">Save</button>
+      <button (click)="store.save()" title="Ctrl+S" [disabled]="!store.active()" [class.primary]="store.active()?.dirty() || store.removalsIn(store.active()?.path()).length > 0">Save</button>
       <button (click)="store.saveAs()" title="Ctrl+Shift+S: as JSON, TypeScript or C#" [disabled]="!store.active()">Save as…</button>
       <button (click)="store.saveAll()" title="Ctrl+Alt+S" [disabled]="!store.dirty()">Save all</button>
       <span class="sep"></span>
@@ -108,7 +108,11 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
                 @if (g.docs.length > 1) {
                   @if (docCounts().get(d.id)?.errors; as errors) { <span class="badge error-badge">{{ errors }}</span> }
                 }
-                @if (d.newInFile()) { <button class="icon" title="Remove this new map (it isn't in the file yet)" (click)="$event.stopPropagation(); store.removeNewMap(d.id)">✕</button> }
+                @if (d.newInFile()) {
+                  <button class="icon" title="Remove this new map (it isn't in the file yet)" (click)="$event.stopPropagation(); store.removeNewMap(d.id)">✕</button>
+                } @else if (g.docs.length > 1) {
+                  <button class="icon" title="Remove this map: it's deleted from the file when you save it" (click)="$event.stopPropagation(); store.removeMap(d.id)">✕</button>
+                }
               </div>
             }
             <button class="nav-item sub" [class.selected]="isSelected(d)" (click)="store.select({ docId: d.id, kind: 'document' })">
@@ -380,7 +384,7 @@ export class App {
   }
 
   groupDirty(g: FileGroup): boolean {
-    return g.docs.some((d) => d.dirty());
+    return g.docs.some((d) => d.dirty()) || this.store.removalsIn(g.docs[0].path()).length > 0;
   }
 
   groupErrors(g: FileGroup): number {

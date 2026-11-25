@@ -3,7 +3,7 @@ import { Injectable, computed, effect, signal } from '@angular/core';
 import { type ValidatorInfo, validatorCatalog } from '../lib/catalog';
 import { type Issue, checkDocument } from '../lib/check';
 import type { CompletionEnv } from '../lib/completion';
-import { insertCsMetadata, newCsMetadataFile, pascalCaseFromFile, readCsMetadata, writeCsMetadata } from '../lib/cs-metadata';
+import { insertCsMetadata, newCsMetadataFile, pascalCaseFromFile, readCsMetadata, removeCsMetadata, writeCsMetadata } from '../lib/cs-metadata';
 import {
   type Json,
   type MetadataDoc,
@@ -302,7 +302,21 @@ export class EditorStore {
       this.status.set(`Could not save the test values to the project: ${(e as Error).message}`);
     }
   }
-  readonly dirty = computed(() => this.documents().some((d) => d.dirty()) || this.projectDirty());
+  /**
+   * Saved maps removed with their ✕, by file: they're deleted from the file when it's saved. Until then the file shows
+   * as unsaved, and closing it without saving keeps them.
+   */
+  readonly removedMaps = signal<{ path: string; format: DocFormat; name: string }[]>([]);
+  readonly dirty = computed(() => this.documents().some((d) => d.dirty()) || this.projectDirty() || this.removedMaps().length > 0);
+
+  /** The maps removed from this file and not saved yet. */
+  removalsIn(path: string | undefined): { path: string; format: DocFormat; name: string }[] {
+    return path ? this.removedMaps().filter((r) => r.path.toLowerCase() === path.toLowerCase()) : [];
+  }
+
+  private forgetRemovals(path: string): void {
+    this.removedMaps.update((all) => all.filter((r) => r.path.toLowerCase() !== path.toLowerCase()));
+  }
   readonly title = computed(() => {
     const active = this.active();
     const others = this.documents().length - 1;
@@ -449,7 +463,9 @@ export class EditorStore {
     this.askingAboutChanges = true;
     try {
       const lines = changed.map((c) => {
-        const unsaved = this.isProjectPath(c.path) ? this.projectDirty() : this.documents().some((d) => d.path()?.toLowerCase() === c.path.toLowerCase() && d.dirty());
+        const unsaved = this.isProjectPath(c.path)
+          ? this.projectDirty()
+          : this.documents().some((d) => d.path()?.toLowerCase() === c.path.toLowerCase() && d.dirty()) || this.removalsIn(c.path).length > 0;
         return `• ${fileName(c.path)}${unsaved ? ': you have unsaved changes here, which reloading discards' : ''}`;
       });
       const title = changed.length === 1 ? `${fileName(changed[0].path)} changed outside the editor` : `${changed.length} files changed outside the editor`;
@@ -500,6 +516,7 @@ export class EditorStore {
     if (!old.length) return;
     const fresh = await this.parseDocuments(path, text);
     this.rememberDiskText(path, text);
+    this.forgetRemovals(path);
     const index = docs.indexOf(old[0]);
     this.documents.set([...docs.slice(0, index).filter((d) => !old.includes(d)), ...fresh, ...docs.slice(index).filter((d) => !old.includes(d))]);
     // Stay on what was selected: the same map, and the same model if it's still there.
@@ -826,10 +843,17 @@ export class EditorStore {
   async closeDocument(id = this.active()?.id): Promise<void> {
     const doc = id ? this.document(id) : undefined;
     if (!doc) return;
-    if (doc.dirty()) {
-      const choice = await host.confirm(`Save the changes to ${doc.label()}?`, doc.path() ?? 'Untitled', ['Save', "Don't save", 'Cancel']);
+    const docPath = doc.path();
+    const lastOfFile = !this.documents().some((d) => d !== doc && !!docPath && d.path()?.toLowerCase() === docPath.toLowerCase());
+    const removals = lastOfFile ? this.removalsIn(docPath) : [];
+    if (doc.dirty() || removals.length) {
+      const detail = removals.length
+        ? `${docPath}: removing ${removals.map((r) => r.name).join(', ')}${doc.dirty() ? ', and changes to ' + doc.name() : ''}`
+        : (docPath ?? 'Untitled');
+      const choice = await host.confirm(`Save the changes to ${removals.length ? doc.fileLabel() : doc.label()}?`, detail, ['Save', "Don't save", 'Cancel']);
       if (choice === 2 || (choice === 0 && !(await this.save(doc)))) return;
     }
+    if (lastOfFile && docPath) this.forgetRemovals(docPath); // not saved: the maps stay in the file
     const rest = this.documents().filter((d) => d !== doc);
     this.documents.set(rest);
     if (this.selection()?.docId === id) this.selection.set(rest[0] ? { docId: rest[0].id, kind: 'document' } : undefined);
@@ -873,7 +897,7 @@ export class EditorStore {
         this.status.set(`Fix the JSON of ${doc.label()} first: it doesn't parse.`);
         return false;
       }
-      if (doc.hasComments()) {
+      if (doc.hasComments() && doc.dirty()) {
         const choice = await host.confirm(
           `Comments inside ${doc.label()} will be lost`,
           'The editor rewrites the metadata object and can\'t keep comments inside it. Comments above it, and the rest of the file, stay. Use $comment to keep notes in the metadata itself.',
@@ -883,10 +907,12 @@ export class EditorStore {
       }
       try {
         const current = await host.readFile(path);
-        const text = await this.writeMap(current.text, doc);
+        let text = doc.dirty() ? await this.writeMap(current.text, doc) : current.text;
+        text = await this.applyRemovals(text, path);
         await host.saveFile(path, text);
         this.rememberDiskText(path, text);
         doc.newInFile.set(false);
+        this.forgetRemovals(path);
       } catch (e) {
         this.status.set(`Could not save ${doc.label()}: ${(e as Error).message}`);
         return false;
@@ -918,7 +944,50 @@ export class EditorStore {
       (d) => d.path()?.toLowerCase() === path.toLowerCase() && d.dirty() && !d.readOnly() && !d.invalidText(),
     );
     for (const d of maps) text = await this.writeMap(text, d);
+    return this.applyRemovals(text, path);
+  }
+
+  /** The file's text without the maps removed from it (✕) and not saved yet. */
+  private async applyRemovals(text: string, path: string): Promise<string> {
+    for (const r of this.removalsIn(path)) {
+      text = r.format === 'ts' ? await host.removeTsMetadata(text, path, r.name) : removeCsMetadata(text, r.name);
+    }
     return text;
+  }
+
+  /**
+   * A map's ✕ in the sidebar. A map made with Add map and not saved just goes. A map that's in its file is removed
+   * after asking, and deleted from the file when the file is saved; until then the file shows as unsaved.
+   */
+  async removeMap(id: string): Promise<void> {
+    const doc = this.document(id);
+    const path = doc?.path();
+    if (!doc || !path) return;
+    if (doc.newInFile()) {
+      this.removeNewMap(id);
+      return;
+    }
+    const choice = await host.confirm(
+      `Remove the map ${doc.name()} from ${doc.fileLabel()}?`,
+      'It\'s deleted from the file when you save the file, with its rules. Until then, closing the file without saving keeps it.',
+      ['Remove', 'Cancel'],
+    );
+    if (choice !== 0) return;
+    this.removedMaps.update((all) => [...all, { path, format: doc.format(), name: doc.name()! }]);
+    this.dropDocument(doc);
+    this.status.set(`Removed the map ${doc.name()}; saving ${doc.fileLabel()} deletes it from the file`);
+  }
+
+  /** Takes a document out of the list, selecting the one before it if it was selected. */
+  private dropDocument(doc: MetadataDocument): void {
+    const docs = this.documents();
+    const index = docs.indexOf(doc);
+    const rest = docs.filter((d) => d !== doc);
+    this.documents.set(rest);
+    if (this.selection()?.docId === doc.id) {
+      const next = rest[Math.max(0, index - 1)];
+      this.selection.set(next ? { docId: next.id, kind: 'document' } : undefined);
+    }
   }
 
   /** A TS or C# file's text with this map in it: rewritten where it is, or added (a map made with Add map). */
@@ -938,14 +1007,7 @@ export class EditorStore {
   removeNewMap(id: string): void {
     const doc = this.document(id);
     if (!doc?.newInFile()) return;
-    const docs = this.documents();
-    const index = docs.indexOf(doc);
-    const rest = docs.filter((d) => d !== doc);
-    this.documents.set(rest);
-    if (this.selection()?.docId === id) {
-      const next = rest[Math.max(0, index - 1)];
-      this.selection.set(next ? { docId: next.id, kind: 'document' } : undefined);
-    }
+    this.dropDocument(doc);
     this.status.set(`Removed the new map ${doc.name()}`);
   }
 
@@ -1024,6 +1086,10 @@ export class EditorStore {
     for (const doc of this.documents().filter((d) => d.dirty())) {
       if (!(await this.save(doc))) return;
     }
+    for (const path of unique(this.removedMaps().map((r) => r.path))) {
+      const doc = this.documents().find((d) => d.path()?.toLowerCase() === path.toLowerCase());
+      if (doc && !(await this.save(doc))) return;
+    }
     // After the documents, so a new file saved under its name is in the project's list.
     if (this.projectDirty()) await this.saveProject();
   }
@@ -1044,6 +1110,7 @@ export class EditorStore {
     this.selectionRestored.set(false); // the next project's own selection comes back when it's open
     this.selection.set(undefined);
     this.documents.set([]);
+    this.removedMaps.set([]);
     this.project.set(undefined);
     this.closedMetadata.set([]);
     this.sources.set([]);
@@ -1055,6 +1122,14 @@ export class EditorStore {
   async confirmDiscard(): Promise<boolean> {
     for (const doc of this.documents().filter((d) => d.dirty())) {
       const choice = await host.confirm(`Save the changes to ${doc.label()}?`, doc.path() ?? 'Untitled', ['Save', "Don't save", 'Cancel']);
+      if (choice === 2) return false;
+      if (choice === 0 && !(await this.save(doc))) return false;
+    }
+    for (const path of unique(this.removedMaps().map((r) => r.path))) {
+      const doc = this.documents().find((d) => d.path()?.toLowerCase() === path.toLowerCase());
+      if (!doc) continue;
+      const names = this.removalsIn(path).map((r) => r.name).join(', ');
+      const choice = await host.confirm(`Save the changes to ${doc.fileLabel()}?`, `${path}: removing ${names}`, ['Save', "Don't save", 'Cancel']);
       if (choice === 2) return false;
       if (choice === 0 && !(await this.save(doc))) return false;
     }

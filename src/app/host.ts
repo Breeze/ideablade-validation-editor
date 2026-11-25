@@ -95,6 +95,8 @@ export interface EditorHost {
   writeTsMetadata(text: string, fileName: string, name: string, json: JsonObject): Promise<string>;
   /** The TS file with another metadata map added at the end (and the type's import, if missing). */
   insertTsMetadata(text: string, fileName: string, name: string, json: JsonObject): Promise<string>;
+  /** The TS file without the metadata map `name` (its statement and doc comment). */
+  removeTsMetadata(text: string, fileName: string, name: string): Promise<string>;
   newTsMetadata(name: string, json: JsonObject): Promise<string>;
   /** The *.ivproj in the folder of a file, or in the nearest folder above that has one. */
   findProject(filePath: string): Promise<string | undefined>;
@@ -148,6 +150,7 @@ const browserHost: EditorHost = {
   readTsMetadata: noFileSystem,
   writeTsMetadata: noFileSystem,
   insertTsMetadata: noFileSystem,
+  removeTsMetadata: noFileSystem,
   newTsMetadata: noFileSystem,
   findProject: async () => undefined,
   readProject: noFileSystem,

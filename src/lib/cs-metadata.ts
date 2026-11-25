@@ -212,6 +212,45 @@ export function insertCsMetadata(text: string, name: string, json: JsonObject): 
   return text.slice(0, lineEnd) + block + text.slice(lineEnd);
 }
 
+/**
+ * The file without the metadata string `name`: its whole declaration goes (`public const string AdminJson = """…""";`),
+ * with the `///` or `//` comment lines right above it, and so does a typed map parsed from it
+ * (`… = ModelValidationMetadataMap.Parse(AdminJson);`), with its comment. The blank line after each goes too.
+ */
+export function removeCsMetadata(text: string, name: string): string {
+  const literal = findLiterals(text).find((l) => {
+    if (l.name !== name) return false;
+    try {
+      return isMetadata(parseJsonWithComments(l.content).value);
+    } catch {
+      return false;
+    }
+  });
+  if (!literal) throw new Error(`There is no metadata string '${name}' in this file any more.`);
+  const statementEnd = text.indexOf(';', literal.end) + 1;
+  let result = cutStatement(text, text.lastIndexOf('\n', literal.start - 1) + 1, statementEnd);
+  const parsed = new RegExp(`^[^\\n;]*ModelValidationMetadataMap\\.Parse\\(\\s*${name}\\s*\\)[^;]*;`, 'm').exec(result);
+  if (parsed) result = cutStatement(result, parsed.index, parsed.index + parsed[0].length);
+  return result;
+}
+
+/** Cuts the lines from `lineStart` to the statement's end, with the comment lines above and one blank line after. */
+function cutStatement(text: string, lineStart: number, end: number): string {
+  let from = lineStart;
+  for (;;) {
+    const prevStart = text.lastIndexOf('\n', from - 2) + 1;
+    if (from === 0 || !/^[ \t]*\/\//.test(text.slice(prevStart, from))) break;
+    from = prevStart;
+  }
+  const rest = /^[ \t]*\r?\n([ \t]*\r?\n)?/.exec(text.slice(end));
+  let before = text.slice(0, from);
+  const after = text.slice(end + (rest ? rest[0].length : 0));
+  // The class's last member: the blank line above it goes, not one before the closing brace.
+  const blank = /\r?\n[ \t]*\r?\n$/.exec(before);
+  if (blank && /^[ \t]*\}/.test(after)) before = before.slice(0, before.length - blank[0].length) + blank[0].slice(0, blank[0].indexOf('\n') + 1);
+  return before + after;
+}
+
 /** `client-validation-metadata.cs` -> `ClientValidationMetadata` */
 export function pascalCaseFromFile(path: string): string {
   const base = (path.split(/[\\/]/).pop() ?? 'ValidationMetadata').replace(/\.[^.]*$/, '').replace(/\.metadata$/i, 'Metadata');

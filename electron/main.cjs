@@ -3,7 +3,7 @@ const { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen } = requi
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { withTypeScriptModels } = require('./typescript-models.cjs');
-const { readTsMetadata, writeTsMetadata, insertTsMetadata, newTsMetadataFile } = require('./typescript-metadata.cjs');
+const { readTsMetadata, writeTsMetadata, insertTsMetadata, removeTsMetadata, newTsMetadataFile } = require('./typescript-metadata.cjs');
 const { PROJECT_EXTENSION, projectFileName, findProject, readProject, writeProject, watchProjectFolders } = require('./project.cjs');
 const {
   loadWindowState,
@@ -116,6 +116,7 @@ ipcMain.handle('file:choose-save-path', async (_e, suggestion, projectDir) => {
 ipcMain.handle('ts:read-metadata', (_e, text, fileName) => readTsMetadata(text, fileName));
 ipcMain.handle('ts:write-metadata', (_e, text, fileName, name, json) => writeTsMetadata(text, fileName, name, json));
 ipcMain.handle('ts:insert-metadata', (_e, text, fileName, name, json) => insertTsMetadata(text, fileName, name, json));
+ipcMain.handle('ts:remove-metadata', (_e, text, fileName, name) => removeTsMetadata(text, fileName, name));
 ipcMain.handle('ts:new-metadata', (_e, name, json) => newTsMetadataFile(name, json));
 
 // The project file (*.ivproj, see project.cjs): the renderer works with absolute paths.

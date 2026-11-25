@@ -201,6 +201,32 @@ function insertTsMetadata(text, fileName, name, json) {
   return withMetadataImport(`${body}${body ? eol + eol : ''}export const ${name}: ModelValidationMetadataMap = ${literal};${eol}`, fileName);
 }
 
+/**
+ * The file without the metadata map `name`: its whole statement goes (`export const name: … = { … };`), with the doc
+ * comment above it and the blank line after it. The rest of the file is kept as it is.
+ */
+function removeTsMetadata(text, fileName, name) {
+  const sf = createSourceFile(text, fileName);
+  const found = findMetadata(sf).find((m) => m.name === name);
+  if (!found) throw new Error(`There is no metadata map '${name}' in ${fileName} any more.`);
+  let statement = found.declaration;
+  while (statement && !ts.isVariableStatement(statement)) statement = statement.parent;
+  if (!statement) throw new Error(`The map '${name}' isn't declared on its own in ${fileName}.`);
+  if (statement.declarationList.declarations.length > 1) {
+    throw new Error(`'${name}' is declared together with other variables in ${fileName}: remove it there.`);
+  }
+  const start = statement.getFullStart() === 0 ? 0 : text.lastIndexOf('\n', statement.getStart(sf) - 1) + 1;
+  // From the start of its line, or of its leading comments (the doc comment above it)
+  const leading = ts.getLeadingCommentRanges(text, statement.getFullStart()) ?? [];
+  const from = leading.length ? text.lastIndexOf('\n', leading[0].pos - 1) + 1 : start;
+  let to = statement.getEnd();
+  const rest = /^[ \t]*\r?\n([ \t]*\r?\n)?/.exec(text.slice(to)); // the line's end, and one blank line after it
+  if (rest) to += rest[0].length;
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  // A file ends with one line break, also when the last map went.
+  return (text.slice(0, from) + text.slice(to)).replace(/\s+$/, '') + eol;
+}
+
 /** A new TypeScript file holding one metadata map, typed, with the type's import. */
 function newTsMetadataFile(name, json) {
   return (
@@ -209,4 +235,4 @@ function newTsMetadataFile(name, json) {
   );
 }
 
-module.exports = { readTsMetadata, writeTsMetadata, insertTsMetadata, newTsMetadataFile, formatTs: (json) => format(json, '', 0, 0, undefined) };
+module.exports = { readTsMetadata, writeTsMetadata, insertTsMetadata, removeTsMetadata, newTsMetadataFile, formatTs: (json) => format(json, '', 0, 0, undefined) };

@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('editorHost', {
   readTsMetadata: (text, fileName) => ipcRenderer.invoke('ts:read-metadata', text, fileName),
   writeTsMetadata: (text, fileName, name, json) => ipcRenderer.invoke('ts:write-metadata', text, fileName, name, json),
   insertTsMetadata: (text, fileName, name, json) => ipcRenderer.invoke('ts:insert-metadata', text, fileName, name, json),
+  removeTsMetadata: (text, fileName, name) => ipcRenderer.invoke('ts:remove-metadata', text, fileName, name),
   newTsMetadata: (name, json) => ipcRenderer.invoke('ts:new-metadata', name, json),
   findProject: (filePath) => ipcRenderer.invoke('project:find', filePath),
   readProject: (projectPath) => ipcRenderer.invoke('project:read', projectPath),
