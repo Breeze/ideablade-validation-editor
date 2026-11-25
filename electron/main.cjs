@@ -5,14 +5,17 @@ const path = require('node:path');
 const { withTypeScriptModels } = require('./typescript-models.cjs');
 const { readTsMetadata, writeTsMetadata, newTsMetadataFile } = require('./typescript-metadata.cjs');
 const { PROJECT_EXTENSION, projectFileName, findProject, readProject, writeProject, watchProjectFolders } = require('./project.cjs');
-const { loadWindowState, trackWindowState } = require('./window-state.cjs');
+const { loadWindowState, trackWindowState, getSelection, setSelection } = require('./window-state.cjs');
 
 let win;
 let forceClose = false;
 
+/** The window's place and the sidebar selections, a user's settings (window-state.cjs). */
+const windowStateFile = () => path.join(app.getPath('userData'), 'window-state.json');
+
 function createWindow() {
   // The size and position it had when it was last closed (window-state.cjs).
-  const stateFile = path.join(app.getPath('userData'), 'window-state.json');
+  const stateFile = windowStateFile();
   const state = loadWindowState(stateFile, screen.getAllDisplays());
   win = new BrowserWindow({
     width: state.width,
@@ -187,6 +190,10 @@ ipcMain.handle('file:open-source', async () => {
 });
 
 ipcMain.on('app:set-title', (_e, title) => win.setTitle(title));
+
+// What was selected in the sidebar, per project (or first metadata file), kept with the window's place.
+ipcMain.handle('ui:get-selection', (_e, key) => getSelection(windowStateFile(), key));
+ipcMain.on('ui:set-selection', (_e, key, selection) => setSelection(windowStateFile(), key, selection));
 
 // The renderer's theme setting (dark, light or system): the window frame, menus and dialogs follow it.
 ipcMain.on('app:set-theme', (_e, theme) => {

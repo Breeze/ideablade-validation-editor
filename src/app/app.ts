@@ -221,6 +221,8 @@ export class App {
       for (const file of args.files) await this.store.openPath(file);
       if (!this.store.documents().length) this.store.newFile();
       if (args.sources.length) await this.store.loadSourcePaths(args.sources);
+      // Back to the model selected last time, or the first one.
+      await this.store.restoreSelection();
     });
   }
 

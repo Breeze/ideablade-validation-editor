@@ -39,6 +39,14 @@ export interface TsMetadata {
   hasComments: boolean;
 }
 
+/** A sidebar selection: a metadata file (and the map in it, for TS and C#), and its settings or one of its models. */
+export interface SavedSelection {
+  path?: string;
+  name?: string;
+  kind: 'document' | 'model';
+  model?: string;
+}
+
 /** Values to try against a pattern rule: ones it should accept and ones it should reject. */
 export interface RegexTestSet {
   shouldPass: string[];
@@ -93,6 +101,9 @@ export interface EditorHost {
   setTitle(title: string): void;
   /** The native theme (window frame, menus, dialogs), and what prefers-color-scheme reports for "system". */
   setTheme(theme: ThemeSetting): void;
+  /** What was selected in the sidebar for a workspace (a user setting, kept with the window's place). */
+  getSelection(key: string): Promise<SavedSelection | undefined>;
+  saveSelection(key: string, selection: SavedSelection): void;
   close(): void;
   onMenu(handler: (command: string) => void): () => void;
   onCloseRequested(handler: () => void): () => void;
@@ -130,6 +141,8 @@ const browserHost: EditorHost = {
   startupArgs: async () => ({ files: [], sources: [] }),
   setTitle: (title) => (document.title = title),
   setTheme: () => {},
+  getSelection: async () => undefined,
+  saveSelection: () => {},
   close: () => window.close(),
   onMenu: () => () => {},
   onCloseRequested: () => () => {},

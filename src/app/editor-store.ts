@@ -325,6 +325,21 @@ export class EditorStore {
       return p ? `${p.path}\n${p.sources.join('\n')}` : '';
     });
     effect(() => void host.watchProject(watched() ? watched().split('\n')[0] : undefined));
+    // The sidebar selection is remembered for this user (with the window's place, not in the project file), once the
+    // files are open and the previous one has been restored.
+    effect(() => {
+      const key = this.workspaceKey();
+      const selection = this.selection();
+      if (!this.selectionRestored() || !key || !selection) return;
+      const doc = this.document(selection.docId);
+      if (!doc?.path()) return;
+      host.saveSelection(key, {
+        path: doc.path(),
+        name: doc.name(),
+        kind: selection.kind,
+        model: selection.kind === 'model' ? selection.name : undefined,
+      });
+    });
     host.onSourceChanged((change) => {
       if (change.path === this.project()?.path) {
         void this.projectChangedOnDisk();
@@ -507,7 +522,36 @@ export class EditorStore {
     for (const file of this.project()!.metadata) {
       if (!this.documents().some((d) => d.path()?.toLowerCase() === file.toLowerCase())) await this.openPath(file);
     }
+    await this.restoreSelection();
     this.status.set(`Opened the project ${projectLabel(projectPath)}`);
+  }
+
+  /** What selections are remembered by: the project file, or the first metadata file without one. */
+  readonly workspaceKey = computed(() => this.project()?.path ?? this.documents()[0]?.path() ?? '');
+  /** Set once the files are open and the remembered selection is back, so opening them doesn't overwrite it. */
+  private readonly selectionRestored = signal(false);
+
+  /**
+   * Selects what was selected when this project (or file) was last open, if it's still there. Otherwise the first
+   * model in the list, so the sidebar doesn't end on whatever file happened to open last.
+   */
+  async restoreSelection(): Promise<void> {
+    const docs = this.documents();
+    const key = this.workspaceKey();
+    const saved = key ? await host.getSelection(key) : undefined;
+    const doc = saved?.path
+      ? docs.find((d) => d.path()?.toLowerCase() === saved.path!.toLowerCase() && (d.name() ?? '') === (saved.name ?? ''))
+      : undefined;
+    if (doc && saved?.kind === 'model' && saved.model && isPlainObject(doc.doc()[saved.model])) {
+      this.selection.set({ docId: doc.id, kind: 'model', name: saved.model });
+    } else if (doc && saved?.kind === 'document') {
+      this.selection.set({ docId: doc.id, kind: 'document' });
+    } else if (docs.length) {
+      const first = docs[0];
+      const model = modelKeys(first.doc())[0];
+      this.selection.set(model ? { docId: first.id, kind: 'model', name: model } : { docId: first.id, kind: 'document' });
+    }
+    this.selectionRestored.set(true);
   }
 
   /** Takes a project's sources and settings (and remembers it as the project in use). */

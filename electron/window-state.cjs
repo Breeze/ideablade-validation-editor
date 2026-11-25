@@ -35,6 +35,26 @@ function isVisible(bounds, displays) {
   });
 }
 
+/** The whole file, or {} when there's none yet or it doesn't read. */
+function readFile(file) {
+  try {
+    const json = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return json && typeof json === 'object' && !Array.isArray(json) ? json : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Writes part of the file, keeping the rest: the window's bounds and the selections share it. */
+function updateFile(file, change) {
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(change(readFile(file)), null, 2));
+  } catch {
+    // not worth failing over
+  }
+}
+
 /** Saves the window's state now, and as it's moved, resized, maximised or closed. */
 function trackWindowState(win, file) {
   let timer;
@@ -43,13 +63,7 @@ function trackWindowState(win, file) {
     if (win.isDestroyed() || win.isMinimized()) return;
     // The normal bounds, so a maximised window restores to the size it had before.
     const bounds = win.getNormalBounds();
-    const state = { ...bounds, maximized: win.isMaximized() };
-    try {
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, JSON.stringify(state, null, 2));
-    } catch {
-      // not worth failing over
-    }
+    updateFile(file, (state) => ({ ...state, ...bounds, maximized: win.isMaximized() }));
   };
   const later = () => {
     clearTimeout(timer);
@@ -59,4 +73,25 @@ function trackWindowState(win, file) {
   for (const event of ['maximize', 'unmaximize', 'close']) win.on(event, save);
 }
 
-module.exports = { loadWindowState, trackWindowState, isVisible, DEFAULT_WINDOW_SIZE: DEFAULT };
+// What was selected in the sidebar (a model, or a file's settings), per workspace: the project file, or the first
+// metadata file when there's no project. A user setting, like the window's place, so it's kept here and not in the
+// project file. The most recent 50 workspaces are kept.
+const MAX_SELECTIONS = 50;
+
+function getSelection(file, key) {
+  const selections = readFile(file).selections;
+  return selections && typeof selections === 'object' ? selections[key] : undefined;
+}
+
+function setSelection(file, key, selection) {
+  updateFile(file, (state) => {
+    const selections = { ...(state.selections && typeof state.selections === 'object' ? state.selections : {}) };
+    delete selections[key]; // re-added last: the most recent at the end
+    if (selection) selections[key] = selection;
+    const keys = Object.keys(selections);
+    for (const old of keys.slice(0, Math.max(0, keys.length - MAX_SELECTIONS))) delete selections[old];
+    return { ...state, selections };
+  });
+}
+
+module.exports = { loadWindowState, trackWindowState, isVisible, getSelection, setSelection, DEFAULT_WINDOW_SIZE: DEFAULT };

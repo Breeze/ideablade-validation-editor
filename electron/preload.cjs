@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('editorHost', {
   startupArgs: () => ipcRenderer.invoke('app:startup-args'),
   setTitle: (title) => ipcRenderer.send('app:set-title', title),
   setTheme: (theme) => ipcRenderer.send('app:set-theme', theme),
+  getSelection: (key) => ipcRenderer.invoke('ui:get-selection', key),
+  saveSelection: (key, selection) => ipcRenderer.send('ui:set-selection', key, selection),
   close: () => ipcRenderer.send('app:close'),
   onMenu: (handler) => {
     const listener = (_e, command) => handler(command);

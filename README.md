@@ -66,7 +66,7 @@ A desktop editor for [IdeaBlade Validation](https://github.com/Breeze/ideablade-
 - **JSON view** next to the forms, kept in step both ways. JSON that doesn't parse isn't applied; the forms keep the last valid state until it parses again.
 - **Try it:** validate a sample object against the metadata as it is now, with the library's real service. You can give it a store (entities by type) for `store('Type')` expressions. Validators the editor doesn't have (`breeze`, custom ones) pass, and async validators don't run.
 - **Dark theme** by default, with VS Code's Dark+ colours, also for the code in expressions. Settings → Theme switches to Light, or to Follow Windows; the window frame, menus and dialogs follow.
-- **The window opens where you left it:** its size, position and maximised state are kept between runs (`window-state.json` in the app's data folder). A position that's no longer on a screen, after unplugging a monitor, is replaced by a centred window of the same size.
+- **The editor opens where you left it:** the window's size, position and maximised state, and what was selected in the sidebar (a model, or a file's settings) for each project, or for the first metadata file without one. These are your settings, so they're kept in the app's data folder (`window-state.json`), not in the project file. A position that's no longer on a screen, after unplugging a monitor, is replaced by a centred window of the same size. With nothing remembered, the first model in the list is selected.
 
 | Several files: JSON and TS side by side | Code completion in an expression | The application's own validators |
 |---|---|---|

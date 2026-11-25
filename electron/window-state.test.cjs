@@ -4,7 +4,7 @@ const { describe, it } = require('node:test');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { loadWindowState, isVisible, DEFAULT_WINDOW_SIZE } = require('./window-state.cjs');
+const { loadWindowState, isVisible, getSelection, setSelection, DEFAULT_WINDOW_SIZE } = require('./window-state.cjs');
 
 const screens = [
   { workArea: { x: 0, y: 0, width: 1920, height: 1040 } },
@@ -30,6 +30,20 @@ describe('the window state', () => {
     assert.deepEqual(loadWindowState(file, screens), DEFAULT_WINDOW_SIZE);
     save({ width: 10, height: 'x' });
     assert.deepEqual(loadWindowState(file, screens), { ...DEFAULT_WINDOW_SIZE, maximized: false });
+    fs.rmSync(file, { force: true });
+  });
+
+  it('keeps a selection per workspace next to the window state, without one overwriting the other', () => {
+    fs.rmSync(file, { force: true });
+    save({ x: 10, y: 10, width: 1600, height: 1000, maximized: false });
+    setSelection(file, 'C:/a/temphire.ivproj', { path: 'C:/a/x.json', kind: 'model', model: 'Address' });
+    setSelection(file, 'C:/b/other.ivproj', { path: 'C:/b/y.ts', name: 'm', kind: 'document' });
+    assert.deepEqual(getSelection(file, 'C:/a/temphire.ivproj'), { path: 'C:/a/x.json', kind: 'model', model: 'Address' });
+    assert.equal(getSelection(file, 'C:/nowhere.ivproj'), undefined);
+    assert.equal(loadWindowState(file, screens).width, 1600); // the bounds are still there
+    for (let i = 0; i < 60; i++) setSelection(file, `k${i}`, { kind: 'document' });
+    assert.equal(getSelection(file, 'C:/a/temphire.ivproj'), undefined); // the oldest go after 50
+    assert.deepEqual(getSelection(file, 'k59'), { kind: 'document' });
     fs.rmSync(file, { force: true });
   });
 
