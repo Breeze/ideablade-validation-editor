@@ -1,0 +1,33 @@
+<!-- The field, with ▾ inside it on the right -->
+<div class="combo">
+  <input #field role="combobox" autocomplete="off" spellcheck="false" [attr.aria-expanded]="open()" [attr.aria-controls]="listId"
+    [value]="value()" [placeholder]="placeholder()" [title]="title()"
+    (input)="onInput($any($event.target).value)" (keydown)="onKeydown($event)" (blur)="close()" />
+  <!-- mousedown's default would take the focus from the field (and close the list) -->
+  <button class="combo-toggle" type="button" tabindex="-1" title="Show the list (↓)" [disabled]="!canOpen()"
+    (mousedown)="$event.preventDefault()" (click)="toggle()">▾</button>
+</div>
+
+<!-- The list: a popover under (or above) the field -->
+<div #list popover="manual" class="combo-list" role="listbox" [id]="listId">
+  @for (m of shown(); track m.value; let i = $index) {
+    <div class="combo-option" role="option" [class.active]="i === active()" [attr.aria-selected]="i === active()"
+      (mousedown)="$event.preventDefault(); pick(m.value)" (mousemove)="active.set(i)">
+      <span class="combo-value">@for (p of m.parts; track $index) {@if (p.match) {<mark>{{ p.text }}</mark>} @else {{{ p.text }}}}</span>
+      @if (m.detail) { <small>{{ m.detail }}</small> }
+    </div>
+  } @empty {
+    @if (!total()) {
+      <div class="combo-note">{{ emptyText() }}</div>
+    } @else {
+      <div class="combo-note">Nothing matches{{ menu() ? '.' : "; what's typed is used as it is." }}</div>
+    }
+  }
+  <!-- How many there are: the list is cut off at 200, so typing narrows it -->
+  @if (total()) {
+    <div class="combo-note">
+      @if (hiddenCount()) { {{ hiddenCount() }} more: type to narrow it down · }
+      {{ matches().length }} of {{ total() }}
+    </div>
+  }
+</div>

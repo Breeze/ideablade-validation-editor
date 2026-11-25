@@ -1,0 +1,40 @@
+/* Laid out like the input it replaces. A parent can set --combo-font-size and --combo-padding (the sidebar's smaller
+   Add rows do). */
+:host { display: block; min-width: 0; }
+.combo { position: relative; }
+.combo input {
+  font-size: var(--combo-font-size, 14px);
+  padding: var(--combo-padding, 3px 6px);
+  padding-right: 22px;
+  color: var(--text);
+}
+/* ▾, inside the field on the right */
+.combo-toggle { position: absolute; top: 1px; right: 1px; bottom: 1px; width: 20px; padding: 0; border: none; border-radius: 0 3px 3px 0; background: transparent; color: var(--muted); font-size: 11px; }
+.combo-toggle:hover:not(:disabled) { color: var(--accent); }
+
+/* The list: in the top layer, anchored under the field (above it when there's no room below), at least as wide. */
+.combo-list {
+  position: fixed;
+  inset: auto;
+  margin: 2px 0;
+  position-area: block-end span-inline-end;
+  position-try-fallbacks: flip-block;
+  min-width: max(anchor-size(width), 220px);
+  max-width: min(560px, 90vw);
+  max-height: min(320px, 45vh);
+  overflow-y: auto;
+  padding: 3px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  font-size: 13px;
+}
+.combo-option { display: flex; gap: 8px; align-items: baseline; padding: 3px 8px; border-radius: 3px; cursor: pointer; white-space: nowrap; }
+.combo-option.active { background: var(--accent-soft); }
+.combo-value { overflow: hidden; text-overflow: ellipsis; }
+.combo-option small { margin-left: auto; padding-left: 12px; font-family: var(--mono); }
+/* The letters that match what was typed */
+.combo-option mark { background: transparent; color: var(--accent); font-weight: 600; }
+.combo-note { padding: 4px 8px 2px; color: var(--muted); font-size: 12px; white-space: normal; max-width: 420px; }

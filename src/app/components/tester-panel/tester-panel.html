@@ -1,9 +1,7 @@
 <div class="tester">
   <!-- What to validate: the model type, the sample object and the store -->
   <label>Model type <small>(with the rules of every open document, merged)</small>
-    <select (change)="modelType.set($any($event.target).value)">
-      @for (t of store.metadataTypes(); track t) { <option [value]="t" [selected]="t === modelType()">{{ t }}</option> }
-    </select>
+    <app-combobox [value]="modelType()" [options]="store.metadataTypes()" (valueChange)="chooseModelType($event)" />
   </label>
   <label>Sample object <button class="link" (click)="fillSample()">fill from the model</button>
     <textarea class="code" rows="10" spellcheck="false" [value]="sample()" (input)="sample.set($any($event.target).value)"></textarea>

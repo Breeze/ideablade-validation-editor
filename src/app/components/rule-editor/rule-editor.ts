@@ -6,7 +6,8 @@ import type { ExpressionSite } from '../../../lib/completion';
 import { type Json, type JsonObject, type Path, type ValidatorObject, isPlainObject } from '../../../lib/doc';
 import { regexTestKey } from '../../../lib/regex';
 import { EditorStore } from '../../services/editor-store';
-import { commentText, commentValue, uniqueId } from '../../shared/ids-and-comments';
+import { commentText, commentValue } from '../../shared/ids-and-comments';
+import { Combobox } from '../combobox/combobox';
 import { ExpressionInput } from '../expression-input/expression-input';
 import { InlineIssues } from '../inline-issues/inline-issues';
 import { RegexEditor } from '../regex-editor/regex-editor';
@@ -23,7 +24,7 @@ import { withKey } from './with-key';
 @Component({
   selector: 'app-rule-editor',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [InlineIssues, ExpressionInput, RegexEditor],
+  imports: [InlineIssues, ExpressionInput, RegexEditor, Combobox],
   // The host classes colour the card's left border: accent while open, red while the rule has errors.
   host: { class: 'rule', '[class.open]': 'open()', '[class.has-error]': 'hasError()' },
   templateUrl: './rule-editor.html',
@@ -48,8 +49,6 @@ export class RuleEditor {
 
   /** Whether the card is unfolded. */
   readonly open = signal(false);
-  readonly listId = uniqueId('validator-names');
-  readonly propertyListId = uniqueId('properties');
   readonly operators = OPERATORS;
   readonly commentValue = commentValue;
   /** Why the "Other settings" text wasn't applied (it isn't a JSON object), until it's fixed. */
@@ -140,6 +139,8 @@ export class RuleEditor {
   });
   /** A model-level rule's `propertyNames`: the properties its errors are about. */
   readonly propertyNames = computed(() => (Array.isArray(this.rule().propertyNames) ? this.rule().propertyNames! : []));
+  /** The known properties not in `propertyNames` yet: what the "add a property…" field offers. */
+  readonly unusedProperties = computed(() => this.knownProperties().filter((p) => !this.propertyNames().includes(p)));
   /** Names in `propertyNames` that aren't known properties: shown separately, marked, so they can be removed. */
   readonly unknownPropertyNames = computed(() => this.propertyNames().filter((p) => !this.knownProperties().includes(p)));
 
@@ -229,6 +230,13 @@ export class RuleEditor {
   }
 
   /** Adds a property to `propertyNames` or removes it; none left removes the key. */
+  /** Enter in "add a property…" with a name typed that isn't in the list: added as it is. */
+  addTypedProperty(text: string): void {
+    const name = text.trim();
+    if (name && !this.propertyNames().includes(name)) this.toggleProperty(name);
+  }
+
+  /** Adds a property to `propertyNames`, or takes it out. */
   toggleProperty(name: string): void {
     const list = this.propertyNames();
     const next = list.includes(name) ? list.filter((p) => p !== name) : [...list, name];

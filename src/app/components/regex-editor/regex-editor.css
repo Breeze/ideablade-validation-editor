@@ -1,7 +1,8 @@
 /* The pattern editor's own look (CodeMirror's DOM) is in regex-editor-codemirror.ts. */
 :host { display: block; margin-top: 2px; }
 .regex-tools { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
-.regex-tools select { width: auto; max-width: 60%; }
+/* The common patterns menu: about as wide as the select it replaced */
+.regex-tools app-combobox.common-patterns { flex: 0 1 60%; min-width: 220px; }
 
 /* "What it matches" */
 .regex-explain { margin: 6px 0; font-size: 13px; }

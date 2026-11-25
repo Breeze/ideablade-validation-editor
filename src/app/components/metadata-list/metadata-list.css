@@ -30,6 +30,7 @@
 .add-row.add-map button { font-size: 13px; padding: 1px 8px; white-space: nowrap; }
 .add-row.add-model input { font-size: 13px; padding: 2px 6px; }
 .add-row.add-model button { font-size: 13px; padding: 1px 8px; }
+.add-row.add-model app-combobox { --combo-font-size: 13px; --combo-padding: 2px 6px; }
 
 /* The part of a name the search matched */
 mark { background: var(--warning-soft); color: inherit; border-radius: 2px; padding: 0; }

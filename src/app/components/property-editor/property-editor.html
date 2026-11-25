@@ -32,10 +32,7 @@
     </div>
     <!-- from: inherit another property's rules -->
     <label>From <small>(inherit another model's property rules: Type, or Type.property)</small>
-      <input [attr.list]="fromListId" [value]="entry().from ?? ''" (input)="set('from', $any($event.target).value || undefined)" />
-      <datalist [id]="fromListId">
-        @for (option of fromOptions(); track option) { <option [value]="option"></option> }
-      </datalist>
+      <app-combobox [value]="entry().from ?? ''" [options]="fromOptions()" (valueChange)="set('from', $event || undefined)" />
     </label>
     <app-inline-issues [path]="at('from')" />
     <label>$comment
