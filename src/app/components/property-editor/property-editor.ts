@@ -2,7 +2,8 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, signal } f
 
 import { type Json, type Path, type PropertyEntry, isPlainObject, renameKey } from '../../../lib/doc';
 import { EditorStore } from '../../services/editor-store';
-import { commentText, commentValue, uniqueId } from '../../shared/ids-and-comments';
+import { commentText, commentValue } from '../../shared/ids-and-comments';
+import { Combobox } from '../combobox/combobox';
 import { InlineIssues } from '../inline-issues/inline-issues';
 import { RuleList } from '../rule-list/rule-list';
 
@@ -16,7 +17,7 @@ import { RuleList } from '../rule-list/rule-list';
 @Component({
   selector: 'app-property-editor',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [InlineIssues, RuleList],
+  imports: [InlineIssues, RuleList, Combobox],
   // The `open` class gives the open card its stronger border and background (see the CSS).
   host: { class: 'property', '[class.open]': 'open()' },
   templateUrl: './property-editor.html',
@@ -30,7 +31,6 @@ export class PropertyEditor {
   readonly name = input.required<string>();
   /** Whether the card is unfolded. It starts closed, so a long list of properties stays easy to scan. */
   readonly open = signal(false);
-  readonly fromListId = uniqueId('from');
   readonly commentValue = commentValue;
 
   /** Where the property is in the document. */

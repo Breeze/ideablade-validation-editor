@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, effect, inject, signal, untracked }
 
 import { type TestResult, runTest, sampleFor } from '../../../lib/tester';
 import { EditorStore } from '../../services/editor-store';
+import { Combobox } from '../combobox/combobox';
 
 /**
  * The "Try it" tab of the side pane: validates a sample object (JSON) of a model type with the library itself, using
@@ -11,6 +12,7 @@ import { EditorStore } from '../../services/editor-store';
  */
 @Component({
   selector: 'app-tester-panel',
+  imports: [Combobox],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './tester-panel.html',
   styleUrl: './tester-panel.css',
@@ -19,6 +21,16 @@ export class TesterPanel {
   readonly store = inject(EditorStore);
   /** The model type to validate the sample as. */
   readonly modelType = signal<string>('');
+  /**
+   * The model type field: a type the metadata has is taken (with a fresh sample, as when one is selected in the
+   * editor); anything else typed there is only a search.
+   */
+  chooseModelType(type: string): void {
+    if (type === this.modelType() || !this.store.metadataTypes().includes(type)) return;
+    this.modelType.set(type);
+    this.fillSample();
+    this.result.set(undefined);
+  }
   /** The sample object, as JSON text. */
   readonly sample = signal('{}');
   /** Entities by type for `store('Type')`, as JSON text; empty for none. */

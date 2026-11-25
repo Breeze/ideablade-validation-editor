@@ -3,7 +3,8 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, signal } f
 import { type GroupEntry, type Json, type Path, type RuleEntry, isGroup, moveItem } from '../../../lib/doc';
 import { regexTestKey } from '../../../lib/regex';
 import { EditorStore } from '../../services/editor-store';
-import { commentText, commentValue, uniqueId } from '../../shared/ids-and-comments';
+import { commentText, commentValue } from '../../shared/ids-and-comments';
+import { Combobox } from '../combobox/combobox';
 import { InlineIssues } from '../inline-issues/inline-issues';
 import { RuleEditor } from '../rule-editor/rule-editor';
 import { newRule } from './new-rule';
@@ -17,7 +18,7 @@ import { newRule } from './new-rule';
 @Component({
   selector: 'app-rule-list',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [InlineIssues, RuleEditor],
+  imports: [InlineIssues, RuleEditor, Combobox],
   templateUrl: './rule-list.html',
   styleUrl: './rule-list.css',
 })
@@ -32,7 +33,6 @@ export class RuleList {
   /** True for the list inside a group, which can't have groups of its own. */
   readonly inGroup = input(false);
 
-  readonly listId = uniqueId('validators');
   /** What's typed in the "validator…" field, until it's added. */
   readonly newName = signal('');
   /** The rules and groups, or none while the path holds no array. */
@@ -40,7 +40,7 @@ export class RuleList {
     const value = this.store.get(this.path());
     return (Array.isArray(value) ? value : []) as RuleEntry[];
   });
-  /** Every validator the editor offers (built-in, the application's, those named in the settings), for the datalist. */
+  /** Every validator the editor offers (built-in, the application's, those named in the settings), for the "validator…" field. */
   readonly validatorNames = this.store.validatorNames;
   readonly isGroup = isGroup;
   readonly comment = (rule: GroupEntry) => commentText(rule.$comment);

@@ -19,10 +19,7 @@
   <div class="rule-body">
     <!-- The validator: any name, the known ones suggested, with the catalog's description -->
     <label>Validator
-      <input [attr.list]="listId" [value]="rule().name" (input)="set('name', $any($event.target).value)" />
-      <datalist [id]="listId">
-        @for (name of validatorNames(); track name) { <option [value]="name"></option> }
-      </datalist>
+      <app-combobox [value]="rule().name" [options]="validatorNames()" (valueChange)="set('name', $event)" />
       @if (info(); as info) {
         <small>{{ info.description }}@if (info.defaultMessage) { Default message: <code>{{ info.defaultMessage }}</code>}</small>
       }
@@ -41,21 +38,19 @@
     </div>
     <app-inline-issues [path]="at('condition')" />
 
-    <!-- Model-level rules: which properties the errors are about, as chips to switch on and off -->
+    <!-- Model-level rules: which properties the errors are about: chips with ✕, and a searchable field to add one -->
     @if (!propertyName() && modelType()) {
       <div class="field">
         <span class="field-label">Property names <small>(the properties this rule's errors are about)</small></span>
         <div class="chips">
-          @for (p of knownProperties(); track p) {
-            <label class="chip" [class.on]="propertyNames().includes(p)">
-              <input type="checkbox" [checked]="propertyNames().includes(p)" (change)="toggleProperty(p)" /> {{ p }}
-            </label>
+          @for (p of propertyNames(); track p) {
+            <span class="chip on" [class.unknown]="!knownProperties().includes(p)" [title]="knownProperties().includes(p) ? p : 'Not a known property'">
+              {{ p }} <button class="icon" type="button" [title]="'Take ' + p + ' out'" (click)="toggleProperty(p)">✕</button>
+            </span>
           }
-          @for (p of unknownPropertyNames(); track p) {
-            <label class="chip on unknown" title="Not a known property">
-              <input type="checkbox" checked (change)="toggleProperty(p)" /> {{ p }}
-            </label>
-          }
+          <app-combobox class="add-property-name" placeholder="add a property…" [menu]="true" [options]="unusedProperties()"
+            [emptyText]="'No other properties known for ' + modelType() + '; any name can be typed (Enter).'"
+            (picked)="toggleProperty($event)" (enter)="addTypedProperty($event)" />
         </div>
         <app-inline-issues [path]="at('propertyNames')" />
       </div>
@@ -94,7 +89,7 @@
             }
             @case ('property') {
               {{ s.label ?? s.key }}
-              <input [attr.list]="propertyListId" [value]="context()[s.key] ?? ''" (input)="setContext(s.key, $any($event.target).value || undefined)" />
+              <app-combobox [value]="$any(context()[s.key] ?? '')" [options]="knownProperties()" (valueChange)="setContext(s.key, $event || undefined)" />
             }
             @case ('values') {
               {{ s.label ?? s.key }} <small>(one per line)</small>
@@ -136,10 +131,6 @@
       @if (otherError()) { <div class="inline-issue error">{{ otherError() }}</div> }
       <app-inline-issues [path]="at('context')" [exact]="true" />
     </fieldset>
-    <!-- Suggestions for the 'property' settings (compare's other...) -->
-    <datalist [id]="propertyListId">
-      @for (p of knownProperties(); track p) { <option [value]="p"></option> }
-    </datalist>
     <label>$comment
       <textarea class="comment" rows="1" [value]="comment()" placeholder="why this rule exists (one paragraph per line)" (change)="set('$comment', commentValue($any($event.target).value))"></textarea>
     </label>

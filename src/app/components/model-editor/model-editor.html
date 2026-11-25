@@ -15,11 +15,8 @@
 <section>
   <div class="row">
     <label>Extends <small>(inherit all of another model's rules)</small>
-      <input [attr.list]="typesListId" [value]="entry().extends ?? ''" (input)="set('extends', $any($event.target).value || undefined)" />
+      <app-combobox [value]="entry().extends ?? ''" [options]="otherTypes()" (valueChange)="set('extends', $event || undefined)" />
     </label>
-    <datalist [id]="typesListId">
-      @for (t of otherTypes(); track t) { <option [value]="t"></option> }
-    </datalist>
   </div>
   <app-inline-issues [path]="at('extends')" />
   <div class="field">
@@ -48,10 +45,7 @@
     <div class="empty">No properties with rules yet.</div>
   }
   <div class="add-row">
-    <input [attr.list]="propsListId" placeholder="property…" [value]="newProperty()" (input)="newProperty.set($any($event.target).value)" (keydown.enter)="addProperty()" />
-    <datalist [id]="propsListId">
-      @for (p of availableProperties(); track p.name) { <option [value]="p.name">{{ p.type }}</option> }
-    </datalist>
+    <app-combobox placeholder="property…" [value]="newProperty()" [options]="propertyOptions()" [emptyText]="noPropertiesText()" (valueChange)="newProperty.set($event)" (enter)="addProperty()" />
     <button (click)="addProperty()" [disabled]="!newProperty().trim()">Add property</button>
     @if (availableProperties().length) {
       <span class="hint">{{ availableProperties().length }} more in {{ sourceNames() }}</span>

@@ -10,14 +10,9 @@
   </div>
 }
 
-<!-- Common patterns to start from. The select goes back to its label after each choice, so it works like a menu. -->
+<!-- Common patterns to start from: a searchable menu; picking one puts its pattern in the field -->
 <div class="regex-tools">
-  <select (change)="useCommon($any($event.target).value); $any($event.target).value = ''">
-    <option value="">Start from a common pattern…</option>
-    @for (p of common; track p.label) {
-      <option [value]="p.pattern">{{ p.label }}{{ p.builtIn ? ' (built-in: ' + p.builtIn + ')' : '' }}</option>
-    }
-  </select>
+  <app-combobox class="common-patterns" placeholder="Start from a common pattern…" [menu]="true" [options]="commonOptions" (picked)="useCommonByLabel($event)" />
   @if (commonNote()) { <small>{{ commonNote() }}</small> }
 </div>
 

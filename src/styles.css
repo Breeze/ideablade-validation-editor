@@ -171,7 +171,7 @@ code { font-family: var(--mono); font-size: 13px; background: var(--code-bg); pa
 .nav-title { margin: 14px 4px 4px; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); display: flex; gap: 6px; }
 .nav-title .count { font-weight: normal; }
 .add-row { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
-.add-row input { flex: 1; min-width: 0; }
+.add-row input, .add-row app-combobox { flex: 1; min-width: 0; }
 .add-row button { white-space: nowrap; }
 
 /* Section headings: the document, model and property editors */

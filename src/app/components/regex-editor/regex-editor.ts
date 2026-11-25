@@ -6,6 +6,7 @@ import { EditorView, keymap, placeholder as placeholderExtension } from '@codemi
 
 import { COMMON_PATTERNS, analyzeRegex, testSamples } from '../../../lib/regex';
 import { EditorStore } from '../../services/editor-store';
+import { Combobox } from '../combobox/combobox';
 import { type Row, split } from './matched-parts';
 import { analysisField, explainOnHover, highlightField, regexSyntaxLinter, regexTheme, setAnalysis } from './regex-editor-codemirror';
 
@@ -20,6 +21,7 @@ import { analysisField, explainOnHover, highlightField, regexSyntaxLinter, regex
  */
 @Component({
   selector: 'app-regex-editor',
+  imports: [Combobox],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './regex-editor.html',
   styleUrl: './regex-editor.css',
@@ -39,6 +41,8 @@ export class RegexEditor implements OnDestroy {
   private view?: EditorView;
 
   readonly common = COMMON_PATTERNS;
+  /** The common patterns as menu choices, with the built-in validator that does the same next to them. */
+  readonly commonOptions = COMMON_PATTERNS.map((p) => ({ value: p.label, detail: p.builtIn ? `built-in: ${p.builtIn}` : undefined }));
   readonly columns = [
     { kind: 'shouldPass' as const, title: 'Should pass', placeholder: 'values the rule must accept' },
     { kind: 'shouldFail' as const, title: 'Should fail', placeholder: 'values the rule must reject' },
@@ -110,6 +114,12 @@ export class RegexEditor implements OnDestroy {
   /** Replaces the pattern with the common one chosen (the select's first option, '', is just its label). */
   useCommon(pattern: string): void {
     if (pattern) this.changed.emit(pattern);
+  }
+
+  /** A common pattern picked from the menu, by its label. */
+  useCommonByLabel(label: string): void {
+    const p = this.common.find((c) => c.label === label);
+    if (p) this.useCommon(p.pattern);
   }
 
   /** Creates the one-line CodeMirror editor for the pattern in the host element. */

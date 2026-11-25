@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, ElementRef, effect, inject, signal,
 import { EditorStore } from '../../services/editor-store';
 import { FORMAT_LABELS, type MetadataDocument } from '../../services/metadata-document';
 import { type FileGroup, MetadataTree } from '../../services/metadata-tree';
-import { uniqueId } from '../../shared/ids-and-comments';
+import { Combobox } from '../combobox/combobox';
 
 /** What's being dragged in the list: a model type (from a map) or a whole map (from a TS or C# file). */
 type Drag = { kind: 'model'; docId: string; name: string } | { kind: 'map'; docId: string };
@@ -20,6 +20,7 @@ type Drag = { kind: 'model'; docId: string; name: string } | { kind: 'map'; docI
  */
 @Component({
   selector: 'app-metadata-list',
+  imports: [Combobox],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './metadata-list.html',
   styleUrl: './metadata-list.css',
@@ -29,8 +30,6 @@ export class MetadataList {
   readonly tree = inject(MetadataTree);
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
   readonly formatLabels = FORMAT_LABELS;
-  /** The base id of the model type suggestions (one `<datalist>` per map: the types its file doesn't have yet). */
-  readonly typesListId = uniqueId('model-types');
 
   constructor() {
     // The search was cleared: the selection, which may have been out of the narrowed list, is scrolled back into view.

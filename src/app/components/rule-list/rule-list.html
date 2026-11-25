@@ -25,12 +25,7 @@
   }
   <!-- Add a rule (any validator name; the known ones are suggested) or, outside groups, a group -->
   <div class="add-row">
-    <input [attr.list]="listId" placeholder="validator…" [value]="newName()" (input)="newName.set($any($event.target).value)" (keydown.enter)="add()" />
-    <datalist [id]="listId">
-      @for (name of validatorNames(); track name) {
-        <option [value]="name"></option>
-      }
-    </datalist>
+    <app-combobox placeholder="validator…" [value]="newName()" [options]="validatorNames()" (valueChange)="newName.set($event)" (enter)="add()" />
     <button (click)="add()" [disabled]="!newName().trim()">Add rule</button>
     @if (!inGroup()) {
       <button (click)="addGroup()">Add group</button>
