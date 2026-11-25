@@ -328,10 +328,15 @@ export class App {
   readonly docCounts = computed(() => this.count((i) => i.docId));
 
   constructor() {
-    // The sidebar's folds as they were left in this project (or file), whenever another one opens.
+    // The sidebar's folds as they were left in this project (or file), whenever another one opens; a search from the
+    // one before doesn't carry over.
     effect(() => {
       const key = this.store.workspaceKey();
-      untracked(() => void this.loadFolds(key));
+      untracked(() => {
+        this.filter.set('');
+        this.addedWhileSearching.set(new Set());
+        void this.loadFolds(key);
+      });
     });
     // The panes' widths as they were left, and kept fitting the window as it's resized.
     void host.getLayout().then((layout) => {
