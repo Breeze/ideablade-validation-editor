@@ -7,7 +7,8 @@ import { host } from './host';
 import { THEME_LABELS, type ThemeSetting, applyTheme, onSystemThemeChange } from './theme';
 import { uniqueId } from './inline-issues';
 import { ModelEditor } from './model-editor';
-import { DocumentEditor, IssuesPanel, JsonView, TesterPanel } from './panels';
+import { JsonView } from './json-view';
+import { DocumentEditor, IssuesPanel, TesterPanel } from './panels';
 
 type Pane = 'json' | 'issues' | 'test';
 interface Counts {

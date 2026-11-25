@@ -18,9 +18,12 @@
     "dev": "node scripts/build-schema-validator.mjs && node scripts/dev.mjs",
     "test": "node scripts/build-schema-validator.mjs && ng test --watch=false && node scripts/test-main.mjs",
     "dist": "npm run build && electron-builder --win nsis",
-    "dist:dir": "npm run build && electron-builder --win dir"
+    "dist:dir": "npm run build && electron-builder --win dir",
+    "icon": "electron scripts/build-icon.cjs"
   },
   "dependencies": {
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/search": "^6.7.2",
     "typescript": "~6.0.2"
   },
   "devDependencies": {
@@ -60,10 +63,12 @@
       "dist/**/*",
       "electron/**/*",
       "!electron/**/*.test.cjs",
-      "package.json"
+      "package.json",
+      "build/icon.ico"
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
@@ -75,7 +80,8 @@
         "ext": "ivproj",
         "name": "IdeaBlade Validation Project",
         "description": "IdeaBlade Validation Project",
-        "role": "Editor"
+        "role": "Editor",
+        "icon": "icon.ico"
       }
     ]
   }

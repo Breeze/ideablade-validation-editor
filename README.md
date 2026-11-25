@@ -1,4 +1,4 @@
-# IdeaBlade Validation Editor
+# <img src="build/icon.png" alt="" width="40" align="top"> IdeaBlade Validation Editor
 
 A desktop editor for [IdeaBlade Validation](https://github.com/Breeze/ideablade-validation)'s JSON validation metadata (`validation.metadata.json`), so the rules no longer have to be written by hand. It's a first drop: a working prototype, not a finished product.
 
@@ -63,7 +63,7 @@ A desktop editor for [IdeaBlade Validation](https://github.com/Breeze/ideablade-
   - **Schema:** against `validation-metadata.schema.json` from the installed `ideablade-validation` package.
   - **The library:** `ideablade-validation` itself checks what the schema can't. It reports unknown validator names, `async` that doesn't match an app validator's registration, regular expression flags that are invalid, have no effect (`g`) or behave differently on client and server (`y`, `v`), expressions and conditions that don't parse (`checkExpression`), invalid `pattern`s, and `from`/`extends` that lead nowhere. It also runs the duplicate error key check (`ModelMetadata.checkErrorKeys`), which the service runs before it first validates a model type. Rule sources work as in the app: a `from` that names a Breeze entity resolves, as it does with `breezeRuleSource`.
   - **Sources:** properties, `propertyNames` and `compare`'s `other` that the model doesn't have.
-- **JSON view** next to the forms, kept in step both ways. JSON that doesn't parse isn't applied; the forms keep the last valid state until it parses again.
+- **JSON view** next to the forms, kept in step both ways. It's a code editor, as in VS Code: Enter indents the new line to the level of the one before it, and Enter after `{` or `[` puts the cursor one level in with the closing bracket on its own line below. It also adds closing brackets and quotes, shows the matching bracket, folds objects and arrays, has line numbers and VS Code's JSON colours, and searches with Ctrl+F. Tab and Shift+Tab indent and outdent; press Esc first to move focus on with Tab instead. A syntax error is underlined where the parser stops. JSON that doesn't parse isn't applied; the forms keep the last valid state until it parses again. Undo there undoes your typing, not edits made in the forms.
 - **Try it:** validate a sample object against the metadata as it is now, with the library's real service. You can give it a store (entities by type) for `store('Type')` expressions. Validators the editor doesn't have (`breeze`, custom ones) pass, and async validators don't run.
 - **Files changed outside the editor:** the open metadata files and the project file are watched too, but unlike sources they aren't reloaded on their own, since you may be in the middle of editing them. When one changes on disk (in another editor, another session, a `git pull`), a dialog names the changed files, says which have unsaved changes that reloading would discard, and asks whether to **Reload** or **Keep the editor's version**. A file deleted on disk only gets a note in the status bar; saving writes it again. Saving checks first: if the file on disk is no longer what the editor read or last saved, it warns that saving would overwrite those changes and offers **Overwrite**, **Reload from disk** or **Cancel**. This holds for every save, metadata and project file alike, including the `regexTests` the editor writes to the project. The editor's own saves don't count as outside changes.
 - **Dark theme** by default, with VS Code's Dark+ colours, also for the code in expressions. Settings → Theme switches to Light, or to Follow Windows; the window frame, menus and dialogs follow.
@@ -76,6 +76,10 @@ A desktop editor for [IdeaBlade Validation](https://github.com/Breeze/ideablade-
 | Rules for a view model from a TS file | The duplicate error key check | Try it |
 |---|---|---|
 | ![](docs/screenshots/view-model.png) | ![](docs/screenshots/duplicate-key.png) | ![](docs/screenshots/try-it.png) |
+
+| TempHire's project file, with its pattern's values to try | The JSON view: folding, search, VS Code's colours | A file changed outside the editor |
+|---|---|---|
+| ![](docs/screenshots/project.png) | ![](docs/screenshots/json-editor.png) | ![](docs/screenshots/outside-change.png) |
 
 ## Running it
 
@@ -119,7 +123,9 @@ Unit tests (Vitest, through Angular's test builder) cover the Breeze and C# read
 npm run dist
 ```
 
-This builds a Windows installer with electron-builder: `release/IdeaBlade Validation Editor Setup 0.1.0.exe`. It's an NSIS installer for the current user, where you can choose the folder. `npm run dist:dir` builds only the unpacked app (`release/win-unpacked/`), which is quicker for checking the packaged build. The installer isn't code-signed and uses Electron's default icon.
+This builds a Windows installer with electron-builder: `release/IdeaBlade Validation Editor Setup 0.1.0.exe`. It's an NSIS installer for the current user, where you can choose the folder. `npm run dist:dir` builds only the unpacked app (`release/win-unpacked/`), which is quicker for checking the packaged build. The installer isn't code-signed.
+
+The icon (JSON braces around a check: validation metadata whose rules pass) is drawn in `build/icon.svg`, with a bolder `build/icon-small.svg` for 16–24 px, where the thin lines blur. `npm run icon` renders both with Electron into `build/icon.ico` (16–256 px), used for the window, the exe, the installer and `.ivproj` files, and `build/icon.png` (512 px). Run it after changing either SVG, and commit the results.
 
 npm 11 lists some packages whose install scripts it didn't run (`esbuild`, `lmdb`, `@parcel/watcher`, `electron-winstaller`, `msgpackr-extract`). The build doesn't need them: esbuild and the watchers come as prebuilt optional packages, and electron-winstaller is only for Squirrel installers.
 
@@ -129,7 +135,7 @@ npm 11 lists some packages whose install scripts it didn't run (`esbuild`, `lmdb
 - **Angular 22** (standalone components, signals, zoneless) for the UI. All state is in one signal store (`src/app/editor-store.ts`): the document is the parsed JSON itself, and every edit replaces it immutably. The JSON text, the issues and the model catalog are `computed`s of it, so the forms, the JSON view and the checks can't get out of step.
 - **The library itself** (`ideablade-validation` from npm) does the checks the schema can't do and runs the tester. The editor uses the same code the apps run, so it agrees with them.
 - **Ajv** checks the schema. The validator is precompiled at build time (`scripts/build-schema-validator.mjs`, into `src/generated/`), so the app's Content-Security-Policy needs no `unsafe-eval`.
-- The editor's own logic is plain TypeScript in `src/lib/` and doesn't depend on Angular: the document helpers, the validator catalog, the source readers, metadata in C#, expression completion, the checks and the tester. Metadata in TypeScript is read and written in `electron/typescript-metadata.cjs`, in the main process, with the TypeScript compiler. Expression fields use CodeMirror 6.
+- The editor's own logic is plain TypeScript in `src/lib/` and doesn't depend on Angular: the document helpers, the validator catalog, the source readers, metadata in C#, expression completion, the checks and the tester. Metadata in TypeScript is read and written in `electron/typescript-metadata.cjs`, in the main process, with the TypeScript compiler. Expression fields, the pattern field and the JSON view use CodeMirror 6.
 
 ## Limitations of this first drop
 

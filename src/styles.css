@@ -136,7 +136,7 @@ input, textarea, select {
 input[type='checkbox'] { width: auto; margin: 0 4px 0 0; accent-color: var(--accent); }
 input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
 textarea { resize: vertical; field-sizing: content; min-height: 26px; }
-.code, textarea.code, code, textarea.json { font-family: var(--mono); font-size: 13px; font-variant-ligatures: none; }
+.code, textarea.code, code { font-family: var(--mono); font-size: 13px; font-variant-ligatures: none; }
 textarea.comment { color: var(--comment-text); font-style: italic; }
 label { display: flex; flex-direction: column; gap: 2px; margin: 6px 0 0; color: var(--muted); font-size: 13px; }
 label > input, label > textarea, label > select { color: var(--text); font-size: 14px; }
@@ -193,7 +193,7 @@ code { font-family: var(--mono); font-size: 13px; background: var(--code-bg); pa
 .main section { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px 10px; margin: 10px 0; }
 .section-title { font-weight: 600; margin: 4px 0 6px; }
 .model-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.model-name { font-size: 20px; font-weight: 600; border-color: transparent; background: transparent; width: auto; flex: 0 1 320px; }
+.model-name { font-size: 20px; font-weight: 600; border-color: transparent; background: transparent; width: auto; field-sizing: content; min-width: 6em; max-width: 100%; flex: 0 1 auto; }
 .model-name:hover { border-color: var(--border); }
 
 app-property-editor { display: block; border: 1px solid var(--border); border-radius: 5px; margin: 6px 0; background: var(--card); }
@@ -239,7 +239,8 @@ fieldset { min-width: 0; }
 .tabs button.active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
 .pane { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
 app-json-view { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-textarea.json { flex: 1; border: none; border-radius: 0; background: var(--bg); font-family: var(--mono); font-size: 13px; line-height: 19px; resize: none; white-space: pre; field-sizing: fixed; padding: 8px 10px; }
+.json-host { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.json-host[hidden] { display: none; }
 .json-error { padding: 6px 10px; background: var(--error-soft); color: var(--error); font-size: 13px; }
 app-issues-panel { display: block; padding: 6px; }
 .issue { display: grid; grid-template-columns: 16px 1fr auto; gap: 2px 6px; width: 100%; text-align: left; border: none; border-bottom: 1px solid var(--line); border-radius: 0; padding: 6px 4px; background: transparent; }

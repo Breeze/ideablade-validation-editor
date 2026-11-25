@@ -1,6 +1,6 @@
-import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked } from '@angular/core';
 
-import { DEFAULT_SCHEMA_URL, type Json, lineOfPath } from '../lib/doc';
+import { DEFAULT_SCHEMA_URL, type Json } from '../lib/doc';
 import { type TestResult, runTest, sampleFor } from '../lib/tester';
 import { schemaVersion } from '../generated/schema-validator';
 import { type DocIssue, EditorStore } from './editor-store';
@@ -63,44 +63,6 @@ export class DocumentEditor {
 
   set(key: string, value: Json | undefined): void {
     this.store.update([key], value);
-  }
-}
-
-/** The selected document's JSON, kept in step with the forms in both directions. */
-@Component({
-  selector: 'app-json-view',
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `
-    @if (store.active(); as d) {
-      @if (d.format() !== 'json') {
-        <div class="json-note">{{ d.label() }} as JSON. It's saved as {{ d.format() === 'ts' ? 'a TypeScript object' : 'a C# JSON string' }} in {{ d.fileLabel() }}.</div>
-      }
-      <textarea #area class="json" spellcheck="false" [readOnly]="!!d.readOnly()" [value]="text()" (input)="store.setJsonText($any($event.target).value)"></textarea>
-      @if (store.invalidText(); as invalid) {
-        <div class="json-error">Not applied, the JSON doesn't parse: {{ invalid.error }}</div>
-      }
-    }
-  `,
-})
-export class JsonView {
-  readonly store = inject(EditorStore);
-  private readonly area = viewChild<ElementRef<HTMLTextAreaElement>>('area');
-  readonly text = computed(() => this.store.invalidText()?.text ?? this.store.jsonText());
-
-  constructor() {
-    // Scroll to (and select the line of) what the clicked issue is about.
-    effect(() => {
-      const path = this.store.focusPath();
-      const area = this.area()?.nativeElement;
-      if (!path || !area) return;
-      const text = untracked(this.text); // only a new focus path scrolls, not every edit
-      const line = lineOfPath(text, path) ?? 1;
-      const lines = text.split('\n');
-      const start = lines.slice(0, line - 1).join('\n').length + (line > 1 ? 1 : 0);
-      const lineHeight = parseFloat(getComputedStyle(area).lineHeight) || 16;
-      area.scrollTop = Math.max(0, (line - 5) * lineHeight);
-      area.setSelectionRange(start, start + (lines[line - 1]?.length ?? 0));
-    });
   }
 }
 

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- icon.svg drawn bolder for 16-24 px (title bar, taskbar, Explorer's small icons): thicker strokes, a bigger check, less margin. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3b82f6" />
+      <stop offset="1" stop-color="#1e3a8a" />
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="256" height="256" rx="44" fill="url(#tile)" />
+  <g fill="none" stroke="#ffffff" stroke-width="30" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M82 36 C56 36 56 52 56 76 L56 104 C56 118 50 128 30 128 C50 128 56 138 56 152 L56 180 C56 204 56 220 82 220" />
+    <path d="M174 36 C200 36 200 52 200 76 L200 104 C200 118 206 128 226 128 C206 128 200 138 200 152 L200 180 C200 204 200 220 174 220" />
+  </g>
+  <path d="M94 132 L118 156 L162 100" fill="none" stroke="#4ade80" stroke-width="34" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

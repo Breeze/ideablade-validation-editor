@@ -28,6 +28,8 @@ function createWindow() {
     show: false, // shown once placed, maximised if it was, so it doesn't jump
     backgroundColor: '#1e1e1e', // the default dark theme, until the renderer says otherwise (no white flash)
     title: 'IdeaBlade Validation Editor',
+    // The packaged exe has it built in; running from source (electron .) needs it here, or Electron's own shows.
+    icon: path.join(__dirname, '..', 'build', 'icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
