@@ -932,6 +932,24 @@ export class EditorStore {
   }
 
   /**
+   * Removes a map made with Add map that hasn't been saved into its file yet (its ✕): it's only in the editor, so it
+   * just goes, rules and all, without asking. The selection moves to the file's previous map.
+   */
+  removeNewMap(id: string): void {
+    const doc = this.document(id);
+    if (!doc?.newInFile()) return;
+    const docs = this.documents();
+    const index = docs.indexOf(doc);
+    const rest = docs.filter((d) => d !== doc);
+    this.documents.set(rest);
+    if (this.selection()?.docId === id) {
+      const next = rest[Math.max(0, index - 1)];
+      this.selection.set(next ? { docId: next.id, kind: 'document' } : undefined);
+    }
+    this.status.set(`Removed the new map ${doc.name()}`);
+  }
+
+  /**
    * Adds another, empty metadata map to a saved TS or C# file (Add map in the sidebar), named `name`: a new exported
    * constant in TS, a new string constant in the same class in C#. It's written into the file when it's saved. False,
    * with the reason in the status bar, when the name can't be used.

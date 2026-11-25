@@ -108,7 +108,7 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
                 @if (g.docs.length > 1) {
                   @if (docCounts().get(d.id)?.errors; as errors) { <span class="badge error-badge">{{ errors }}</span> }
                 }
-                @if (d.newInFile()) { <button class="icon" title="Remove this new map (it isn't in the file yet)" (click)="$event.stopPropagation(); store.closeDocument(d.id)">✕</button> }
+                @if (d.newInFile()) { <button class="icon" title="Remove this new map (it isn't in the file yet)" (click)="$event.stopPropagation(); store.removeNewMap(d.id)">✕</button> }
               </div>
             }
             <button class="nav-item sub" [class.selected]="isSelected(d)" (click)="store.select({ docId: d.id, kind: 'document' })">
