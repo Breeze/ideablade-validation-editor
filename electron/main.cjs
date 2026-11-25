@@ -333,7 +333,23 @@ const buildMenu = () => Menu.buildFromTemplate([
     ],
   },
   { role: 'editMenu' },
-  { role: 'viewMenu' },
+  {
+    // Electron's View menu, plus Reset Layout (the splitters' widths back to their defaults).
+    label: '&View',
+    submenu: [
+      { label: 'Reset &Layout', click: sendMenu('resetLayout') },
+      { type: 'separator' },
+      { role: 'reload' },
+      { role: 'forceReload' },
+      { role: 'toggleDevTools' },
+      { type: 'separator' },
+      { role: 'resetZoom' },
+      { role: 'zoomIn' },
+      { role: 'zoomOut' },
+      { type: 'separator' },
+      { role: 'togglefullscreen' },
+    ],
+  },
 ]);
 
 app.whenReady().then(() => {

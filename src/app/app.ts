@@ -183,7 +183,7 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
           </select>
         </label>
       </nav>
-      <div class="splitter" title="Drag to make the sidebar wider or narrower; double-click for its default width"
+      <div class="splitter" title="Drag to make the sidebar wider or narrower (Esc while dragging cancels); double-click for its default width"
         (pointerdown)="startResize('sidebar', $event)" (dblclick)="resetWidth('sidebar')"></div>
 
       <main class="main">
@@ -200,7 +200,7 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
           <app-document-editor />
         }
       </main>
-      <div class="splitter" title="Drag to make this pane wider or narrower; double-click for its default width"
+      <div class="splitter" title="Drag to make this pane wider or narrower (Esc while dragging cancels); double-click for its default width"
         (pointerdown)="startResize('side', $event)" (dblclick)="resetWidth('side')"></div>
 
       <aside class="side">
@@ -289,6 +289,7 @@ export class App {
         case 'saveAs': return void this.store.saveAs();
         case 'saveAll': return void this.store.saveAll();
         case 'closeProject': return void this.store.closeProject();
+        case 'resetLayout': return this.resetLayout();
         case 'addSource': return void this.store.addSources();
         case 'reloadSources': return void this.store.reloadSources();
         case 'openRecent': return void (arg && this.store.openPath(arg));
@@ -418,10 +419,17 @@ export class App {
   });
   private readonly windowWidth = signal(window.innerWidth);
 
+  /** Drags a splitter. Esc before letting go puts both widths back as they were, and nothing is saved. */
   startResize(which: 'sidebar' | 'side', event: PointerEvent): void {
+    if (event.button !== 0) return;
+    // No text selection from this press: once Esc ends the drag the button is still down, and a selection made then
+    // would be dragged by the next splitter drag, which the browser then cancels.
+    event.preventDefault();
+    window.getSelection()?.removeAllRanges();
     const handle = event.target as HTMLElement;
     handle.setPointerCapture(event.pointerId);
     const startX = event.clientX;
+    const before = { sidebar: this.sidebarWidth(), side: this.sideWidth() };
     const start = fitWidths(this.windowWidth(), this.sidebarWidth(), this.sideWidth() || Math.round(this.windowWidth() * 0.38));
     const move = (e: PointerEvent) => {
       const dx = e.clientX - startX;
@@ -431,18 +439,42 @@ export class App {
         this.sideWidth.set(fitWidths(this.windowWidth(), start.sidebar, start.side - dx).side);
       }
     };
-    const end = () => {
+    const stop = () => {
       handle.removeEventListener('pointermove', move);
       handle.removeEventListener('pointerup', end);
-      handle.removeEventListener('pointercancel', end);
+      handle.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('keydown', escape, true);
+      if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+    };
+    const end = () => {
+      stop();
       host.saveLayout({ sidebar: this.sidebarWidth(), side: this.sideWidth() || undefined });
+    };
+    const cancel = () => {
+      stop();
+      this.sidebarWidth.set(before.sidebar);
+      this.sideWidth.set(before.side);
+    };
+    const escape = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation(); // the drag's, not a dialog's or an editor's
+      cancel();
     };
     handle.addEventListener('pointermove', move);
     handle.addEventListener('pointerup', end);
-    handle.addEventListener('pointercancel', end);
+    handle.addEventListener('pointercancel', cancel);
+    window.addEventListener('keydown', escape, true);
   }
 
   /** Double-clicking a splitter puts that pane back to its default width. */
+  /** View → Reset Layout: the sidebar and the right pane back to their default widths (300 px, 38% of the window). */
+  resetLayout(): void {
+    this.sidebarWidth.set(SIDEBAR_DEFAULT);
+    this.sideWidth.set(0);
+    host.saveLayout({});
+  }
+
   resetWidth(which: 'sidebar' | 'side'): void {
     if (which === 'sidebar') this.sidebarWidth.set(SIDEBAR_DEFAULT);
     else this.sideWidth.set(0);
