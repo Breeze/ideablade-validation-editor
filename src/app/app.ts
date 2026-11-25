@@ -164,7 +164,8 @@ interface Counts {
       <span class="spacer"></span>
       <span>{{ store.documents().length }} metadata {{ store.documents().length === 1 ? 'map' : 'maps' }} · {{ store.metadataTypes().length }} model types ·
         {{ store.catalog().size }} known from sources ·
-        @if (store.errorCount()) { <span class="error-text">{{ store.errorCount() }} {{ store.errorCount() === 1 ? 'error' : 'errors' }}</span> } @else { no errors }</span>
+        @if (store.errorCount()) { <span class="error-text">{{ store.errorCount() }} {{ store.errorCount() === 1 ? 'error' : 'errors' }}</span> } @else { no errors }
+        @if (warningCount()) { · <span class="warning-text">{{ warningCount() }} {{ warningCount() === 1 ? 'warning' : 'warnings' }}</span> }</span>
     </footer>
   `,
 })
