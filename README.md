@@ -140,6 +140,33 @@ The icon (JSON braces around a check: validation metadata whose rules pass) is d
 
 npm 11 lists some packages whose install scripts it didn't run (`esbuild`, `lmdb`, `@parcel/watcher`, `electron-winstaller`, `msgpackr-extract`). The build doesn't need them: esbuild and the watchers come as prebuilt optional packages, and electron-winstaller is only for Squirrel installers.
 
+### Releasing
+
+A release is a tag on a commit whose `package.json` has that version, with release notes next to it. For `0.1.0-alpha.2`:
+
+1. Set the version, which names the installers and is the version the app reports:
+
+   ```powershell
+   npm version 0.1.0-alpha.2 --no-git-tag-version
+   ```
+
+2. Write the release notes in `.github/release-notes/v0.1.0-alpha.2.md` (without them, GitHub generates notes from the commits since the last tag). The installers' names follow from the version, so the notes can link straight to them, as [v0.1.0-alpha.1's](.github/release-notes/v0.1.0-alpha.1.md) do: `https://github.com/Breeze/ideablade-validation-editor/releases/download/<tag>/<file>`, with the files `IdeaBlade-Validation-Editor-Setup-<version>.exe`, `IdeaBlade-Validation-Editor-<version>-mac-arm64.dmg` and `-mac-x64.dmg`, `-linux-x86_64.AppImage`, and `-linux-amd64.deb`.
+3. Commit both and push to `main`.
+4. Optionally, build the installers once without releasing anything, to catch a broken build before there's a tag to move: Actions → Release → Run workflow, or
+
+   ```powershell
+   gh workflow run release.yml -R Breeze/ideablade-validation-editor
+   ```
+
+5. Tag that commit and push the tag:
+
+   ```powershell
+   git tag -a v0.1.0-alpha.2 -m "0.1.0-alpha.2"
+   git push origin v0.1.0-alpha.2
+   ```
+
+The Release workflow then checks that the tag matches `package.json`'s version (and stops before building if it doesn't), runs the tests and builds the installers on Windows, macOS and Linux, and creates the GitHub release with them attached: a pre-release when the version has a hyphen (`-alpha.2`, `-rc.1`), a normal release otherwise. A tag that already has a release can't make another; a broken one is fixed with a new version.
+
 ## How it's built, and why
 
 - **Electron**, for a desktop app that opens and saves files and watches the model sources. The main process (`electron/main.cjs`) owns the file system: dialogs, reading, saving, `fs.watch`, and reading TypeScript files, since the TypeScript compiler needs Node. The renderer is sandboxed with context isolation and gets a small API through `electron/preload.cjs`.
