@@ -96,7 +96,7 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
         <div class="nav-title">Metadata <span class="count">{{ store.documents().length }}</span>
           @if (store.documents().length) {
             <span class="spacer"></span>
-            <button class="link fold-all" title="Fold every file down to its name" (click)="collapseAll()">Collapse all</button>
+            <button class="link fold-all" title="Fold every file and map down to its name" (click)="collapseAll()">Collapse all</button>
             <button class="link fold-all" title="Unfold every file and map" (click)="expandAll()">Expand all</button>
           }
         </div>
@@ -505,9 +505,11 @@ export class App {
     this.saveFolds();
   }
 
-  /** Every file folded down to its name. */
+  /** Every file folded down to its name, and every map in them too: unfolding one file shows its maps folded. */
   collapseAll(): void {
-    this.foldedFiles.set(new Set(this.fileGroups().map((g) => g.key)));
+    const groups = this.fileGroups();
+    this.foldedFiles.set(new Set(groups.map((g) => g.key)));
+    this.foldedMaps.set(new Set(groups.filter((g) => this.hasMapLines(g)).flatMap((g) => g.docs.map((d) => this.mapKey(d)))));
     this.saveFolds();
   }
 
