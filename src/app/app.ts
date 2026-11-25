@@ -105,7 +105,7 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
         @if (store.documents().length) {
           <div class="sidebar-search">
             <input #search type="search" placeholder="Find model types and maps…" title="Ctrl+Shift+F. Enter opens the first match, Esc clears it."
-              aria-label="Find model types and maps" [value]="filter()" (input)="filter.set($any($event.target).value)"
+              aria-label="Find model types and maps" [value]="filter()" (input)="onFilter($any($event.target).value)"
               (keydown.escape)="clearFilter($event)" (keydown.enter)="openFirstMatch()" />
             @if (filtering()) { <span class="search-count" title="Model types that match, of all">{{ matchCount() }} of {{ modelTotal() }}</span> }
           </div>
@@ -129,6 +129,14 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
               <button class="icon" title="Close: takes it out of the project, when there is one" (click)="$event.stopPropagation(); closeFile(g)">✕</button>
             </div>
             @if (!fileFolded(g)) {
+            @if (canAddMap(g)) {
+              <div class="add-row add-map">
+                <input [placeholder]="g.docs[0].format() === 'ts' ? 'map name, e.g. adminMetadata' : 'map name, e.g. AdminJson'"
+                  [title]="'Add another metadata map to ' + g.docs[0].fileLabel()" [value]="newMaps()[g.key] ?? ''"
+                  (input)="setNewMap(g.key, $any($event.target).value)" (keydown.enter)="addMap(g)" />
+                <button (click)="addMap(g)" [disabled]="!(newMaps()[g.key] ?? '').trim()">Add map</button>
+              </div>
+            }
             @for (d of g.docs; track d.id) {
             @if (showDoc(g, d)) {
             <div class="map-block" [class.drop-target]="dropOn() === d.id" (dragover)="overMap($event, d)" (dragleave)="leave($event, d.id)" (drop)="dropOnMap($event, d)">
@@ -158,6 +166,16 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
               <small>{{ d.format() === 'json' ? '$schema, $comment, global rules' : '$comment, global rules' }}</small>
             </button>
             }
+            @if (!d.readOnly()) {
+              <div class="add-row add-model">
+                <input [attr.list]="typesListId + '-' + d.id" placeholder="model type…" [title]="'Add a model type to ' + d.label()"
+                  [value]="newModels()[d.id] ?? ''" (input)="setNewModel(d.id, $any($event.target).value)" (keydown.enter)="addModel(d.id)" />
+                <datalist [id]="typesListId + '-' + d.id">
+                  @for (t of missingTypesOf(d); track t) { <option [value]="t"></option> }
+                </datalist>
+                <button (click)="addModel(d.id)" [disabled]="!(newModels()[d.id] ?? '').trim()">Add</button>
+              </div>
+            }
             @for (m of visibleModels(g, d); track m) {
               <button class="nav-item sub" [class.selected]="isSelected(d, m)" (click)="store.select({ docId: d.id, kind: 'model', name: m })"
                 [attr.draggable]="!d.readOnly()" (dragstart)="dragModel($event, d, m)" (dragend)="dragEnd()"
@@ -171,27 +189,9 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
                 }
               </button>
             }
-            @if (!d.readOnly() && !filtering()) {
-              <div class="add-row add-model">
-                <input [attr.list]="typesListId + '-' + d.id" placeholder="model type…" [title]="'Add a model type to ' + d.label()"
-                  [value]="newModels()[d.id] ?? ''" (input)="setNewModel(d.id, $any($event.target).value)" (keydown.enter)="addModel(d.id)" />
-                <datalist [id]="typesListId + '-' + d.id">
-                  @for (t of missingTypesOf(d); track t) { <option [value]="t"></option> }
-                </datalist>
-                <button (click)="addModel(d.id)" [disabled]="!(newModels()[d.id] ?? '').trim()">Add</button>
-              </div>
-            }
             }
             </div>
             }
-            }
-            @if (canAddMap(g) && !filtering()) {
-              <div class="add-row add-map">
-                <input [placeholder]="g.docs[0].format() === 'ts' ? 'map name, e.g. adminMetadata' : 'map name, e.g. AdminJson'"
-                  [title]="'Add another metadata map to ' + g.docs[0].fileLabel()" [value]="newMaps()[g.key] ?? ''"
-                  (input)="setNewMap(g.key, $any($event.target).value)" (keydown.enter)="addMap(g)" />
-                <button (click)="addMap(g)" [disabled]="!(newMaps()[g.key] ?? '').trim()">Add map</button>
-              </div>
             }
             }
           </div>
@@ -435,7 +435,9 @@ export class App {
   }
 
   addModel(docId: string): void {
-    this.store.addModel(this.newModels()[docId] ?? '', docId);
+    const name = (this.newModels()[docId] ?? '').trim();
+    this.store.addModel(name, docId);
+    this.keepInView(`${docId}/${name}`);
     this.setNewModel(docId, '');
   }
 
@@ -477,7 +479,10 @@ export class App {
   }
 
   async addMap(g: FileGroup): Promise<void> {
-    if (await this.store.addMap(g.docs[g.docs.length - 1], this.newMaps()[g.key] ?? '')) this.setNewMap(g.key, '');
+    if (!(await this.store.addMap(g.docs[g.docs.length - 1], this.newMaps()[g.key] ?? ''))) return;
+    this.setNewMap(g.key, '');
+    const added = this.store.active(); // addMap selects the new map
+    if (added) this.keepInView(added.id);
   }
 
   // ---- Folding files and maps in the sidebar
@@ -565,14 +570,60 @@ export class App {
     return !this.filtering() || this.hit(g.docs[0].fileLabel()) || (this.hasMapLines(g) && this.hit(d.name()));
   }
 
-  /** A map's model types that show: all of them, or the ones whose names match. */
+  /** A map's model types that show: all of them, or the ones whose names match, and the ones added during this search. */
   visibleModels(g: FileGroup, d: MetadataDocument): string[] {
     const all = this.modelsOf(d);
-    return this.wholeDoc(g, d) ? all : all.filter((m) => this.hit(m));
+    if (this.wholeDoc(g, d)) return all;
+    const added = this.addedWhileSearching();
+    return all.filter((m) => this.hit(m) || added.has(`${d.id}/${m}`));
   }
 
   showDoc(g: FileGroup, d: MetadataDocument): boolean {
-    return this.wholeDoc(g, d) || this.visibleModels(g, d).length > 0;
+    return this.wholeDoc(g, d) || this.addedWhileSearching().has(d.id) || this.visibleModels(g, d).length > 0;
+  }
+
+  /**
+   * Model types (docId/name) and maps (docId) added while a search is on: they stay in view, matching or not, until
+   * the search is cleared.
+   */
+  private readonly addedWhileSearching = signal<ReadonlySet<string>>(new Set());
+
+  private keepInView(key: string): void {
+    if (this.filtering()) this.addedWhileSearching.update((set) => new Set([...set, key]));
+  }
+
+  /** The search field changed. Cleared: back to the whole list, with the selection unfolded and scrolled into view. */
+  onFilter(value: string): void {
+    this.filter.set(value);
+    if (value.trim()) return;
+    this.addedWhileSearching.set(new Set());
+    this.unfoldSelection();
+    this.revealSelection();
+  }
+
+  /** Unfolds the file and the map the selection is in, so it shows. */
+  private unfoldSelection(): void {
+    const doc = this.store.active();
+    if (!doc) return;
+    const fileKey = doc.path()?.toLowerCase() ?? doc.id;
+    const files = this.foldedFiles();
+    const maps = this.foldedMaps();
+    if (!files.has(fileKey) && !maps.has(this.mapKey(doc))) return;
+    this.foldedFiles.set(new Set([...files].filter((k) => k !== fileKey)));
+    this.foldedMaps.set(new Set([...maps].filter((k) => k !== this.mapKey(doc))));
+    this.saveFolds();
+  }
+
+  /** Scrolls the selected entry into the middle of the list, once it's drawn, if it's out of sight. */
+  private revealSelection(): void {
+    setTimeout(() => {
+      const list = document.querySelector('.sidebar-list');
+      const selected = list?.querySelector<HTMLElement>('.nav-item.selected, .map-head.selected');
+      if (!list || !selected) return;
+      const l = list.getBoundingClientRect();
+      const r = selected.getBoundingClientRect();
+      if (r.top < l.top || r.bottom > l.bottom) selected.scrollIntoView({ block: 'center' });
+    }, 50);
   }
 
   showGroup(g: FileGroup): boolean {
@@ -613,7 +664,7 @@ export class App {
   clearFilter(event: Event): void {
     if (this.filter()) {
       event.preventDefault();
-      this.filter.set('');
+      this.onFilter('');
     } else {
       (event.target as HTMLInputElement).blur();
     }
