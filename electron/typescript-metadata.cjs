@@ -165,13 +165,32 @@ function writeTsMetadata(text, fileName, name, json) {
   const column = start - (text.lastIndexOf('\n', start - 1) + 1);
   let literal = format(json, indent, column, 0, undefined);
   if (text.includes('\r\n')) literal = literal.replace(/\n/g, '\r\n'); // keep the file's line endings
-  return text.slice(0, start) + literal + text.slice(end);
+  return withMetadataImport(text.slice(0, start) + literal + text.slice(end), fileName);
 }
 
-/** A new TypeScript file holding one metadata map. */
+const METADATA_IMPORT = `import type { ModelValidationMetadataMap } from 'ideablade-validation';`;
+
+/**
+ * The file with `ModelValidationMetadataMap` imported, so the map's type annotation compiles: added above the first
+ * import (or at the top) when no import brings it in. A file that imports it already is left as it is.
+ */
+function withMetadataImport(text, fileName) {
+  const sf = createSourceFile(text, fileName);
+  const imports = sf.statements.filter(ts.isImportDeclaration);
+  const hasIt = imports.some((d) => {
+    const bindings = d.importClause?.namedBindings;
+    return bindings && ts.isNamedImports(bindings) && bindings.elements.some((e) => e.name.text === 'ModelValidationMetadataMap');
+  });
+  if (hasIt) return text;
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const at = imports.length ? imports[0].getStart(sf) : 0;
+  return text.slice(0, at) + METADATA_IMPORT + eol + (imports.length ? '' : eol) + text.slice(at);
+}
+
+/** A new TypeScript file holding one metadata map, typed, with the type's import. */
 function newTsMetadataFile(name, json) {
   return (
-    `import type { ModelValidationMetadataMap } from 'ideablade-validation';\n\n` +
+    `${METADATA_IMPORT}\n\n` +
     `export const ${name}: ModelValidationMetadataMap = ${format(json, '', 0, 0, undefined)};\n`
   );
 }

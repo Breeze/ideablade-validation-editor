@@ -295,7 +295,11 @@ describe('metadata in C#', () => {
   it('writes a new file, and reads verbatim strings', () => {
     expect(pascalCaseFromFile('C:/x/client-validation.metadata.cs')).toBe('ClientValidationMetadata');
     const created = newCsMetadataFile('ClientValidationMetadata', { A: {} });
+    // one map (the JSON constant), typed as the library's ModelValidationMetadataMap next to it, with its using
     expect(readCsMetadata(created)).toEqual([{ name: 'Json', json: { A: {} }, hasComments: false }]);
+    expect(created.startsWith('using IdeaBlade.Validation.Metadata;\n')).toBe(true);
+    expect(created).toContain('public static readonly ModelValidationMetadataMap Metadata = ModelValidationMetadataMap.Parse(Json);');
+    expect(readCsMetadata(writeCsMetadata(created, 'Json', { B: {} }))[0].json).toEqual({ B: {} });
     const verbatim = 'var json = @"{ ""A"": { ""properties"": {} } }";';
     expect(readCsMetadata(verbatim)[0]).toMatchObject({ name: 'json', json: { A: { properties: {} } } });
     expect(readCsMetadata(writeCsMetadata(verbatim, 'json', { B: {} }))[0].json).toEqual({ B: {} });

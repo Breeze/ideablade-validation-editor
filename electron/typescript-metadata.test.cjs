@@ -58,6 +58,20 @@ describe('metadata in TypeScript', () => {
     assert.equal(commented.hasComments, true);
   });
 
+  it('adds the import of ModelValidationMetadataMap when the file has none, so the type annotation compiles', () => {
+    const json = { A: { properties: { b: { required: true } } } };
+    const bare = 'export const m: ModelValidationMetadataMap = {};\n';
+    assert.equal(writeTsMetadata(bare, 'x.ts', 'm', json).split('\n').slice(0, 3).join('\n'),
+      "import type { ModelValidationMetadataMap } from 'ideablade-validation';\n\nexport const m: ModelValidationMetadataMap = {");
+    const others = "import { syncValidator } from 'ideablade-validation';\nexport const m = {} satisfies ModelValidationMetadataMap;\n";
+    const written = writeTsMetadata(others, 'x.ts', 'm', json);
+    assert.ok(written.startsWith("import type { ModelValidationMetadataMap } from 'ideablade-validation';\nimport { syncValidator }"));
+    assert.deepEqual(readTsMetadata(written, 'x.ts')[0].json, json);
+    // imported already (as TempHire's file does): only the object changes
+    assert.ok(writeTsMetadata(file, 'client.ts', 'clientValidationMetadata', json).startsWith(file.split('\r\n')[0]));
+    assert.equal(writeTsMetadata(file, 'client.ts', 'clientValidationMetadata', json).split("from 'ideablade-validation'").length, 2);
+  });
+
   it('writes a new file', () => {
     const text = newTsMetadataFile('clientValidationMetadata', { A: { properties: { b: { required: true } } } });
     assert.deepEqual(readTsMetadata(text, 'new.ts')[0].json, { A: { properties: { b: { required: true } } } });

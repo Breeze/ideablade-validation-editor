@@ -190,14 +190,23 @@ export function pascalCaseFromFile(path: string): string {
   return /^[A-Za-z_]/.test(name) ? name : `Metadata${name}`;
 }
 
-/** A new C# file holding one metadata map as a raw string constant. */
+/**
+ * A new C# file holding one metadata map: the JSON as a raw string constant (what the editor reads and writes; a C#
+ * const can only be a string) and, typed, the library's ModelValidationMetadataMap parsed from it, with its using.
+ */
 export function newCsMetadataFile(className: string, json: JsonObject): string {
   return [
-    '// Validation metadata for IdeaBlade.Validation, as JSON:',
-    `//   services.AddIdeaBladeValidation(v => v.AddMetadataJson(${className}.Json));`,
+    'using IdeaBlade.Validation.Metadata;',
+    '',
+    '// Validation metadata for IdeaBlade.Validation:',
+    `//   services.AddIdeaBladeValidation(v => v.AddMetadata(${className}.Metadata));`,
     `public static class ${className}`,
     '{',
+    '    /// <summary>The metadata as JSON (AddMetadataJson takes this too).</summary>',
     `    public const string Json = ${rawLiteral(json, '        ', '\n')};`,
+    '',
+    '    /// <summary>The metadata, parsed from <see cref="Json"/>.</summary>',
+    '    public static readonly ModelValidationMetadataMap Metadata = ModelValidationMetadataMap.Parse(Json);',
     '}',
     '',
   ].join('\n');
