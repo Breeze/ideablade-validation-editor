@@ -33,6 +33,7 @@
     "@codemirror/lang-json": "^6.0.2",
     "@codemirror/legacy-modes": "^6.5.5",
     "@codemirror/search": "^6.7.2",
+    "electron-updater": "^6.8.11",
     "typescript": "~6.0.2"
   },
   "devDependencies": {
@@ -79,6 +80,13 @@
       "build/icon.png"
     ],
     "afterPack": "scripts/adhoc-sign-mac.cjs",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Breeze",
+        "repo": "ideablade-validation-editor"
+      }
+    ],
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico"

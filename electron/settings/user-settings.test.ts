@@ -5,7 +5,9 @@ import { describe, it } from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { getFolds, getLastSaveFolder, getLayout, getSelection, setFolds, setLastSaveFolder, setLayout, setSelection } from './user-settings';
+import {
+  getFolds, getLastSaveFolder, getLayout, getSelection, getUpdateSettings, setFolds, setLastSaveFolder, setLayout, setSelection, setUpdateSettings,
+} from './user-settings';
 import { loadWindowState } from './window-bounds';
 
 const screens = [
@@ -67,6 +69,21 @@ describe('the user settings', () => {
     assert.equal(getLastSaveFolder(file), dir);
     fs.rmSync(dir, { recursive: true });
     assert.equal(getLastSaveFolder(file), undefined); // gone: the project's folder is used instead
+    fs.rmSync(file, { force: true });
+  });
+
+  it('keeps the update settings next to the rest, both on until turned off', () => {
+    fs.rmSync(file, { force: true });
+    assert.deepEqual(getUpdateSettings(file), { checkAutomatically: true, includePrereleases: true });
+    save({ x: 10, y: 10, width: 1600, height: 1000, maximized: false });
+    assert.deepEqual(setUpdateSettings(file, { includePrereleases: false }), { checkAutomatically: true, includePrereleases: false });
+    assert.deepEqual(setUpdateSettings(file, { checkAutomatically: false }), { checkAutomatically: false, includePrereleases: false });
+    assert.deepEqual(getUpdateSettings(file), { checkAutomatically: false, includePrereleases: false });
+    assert.equal(loadWindowState(file, screens).width, 1600); // the rest stays
+    setUpdateSettings(file, { checkAutomatically: true });
+    assert.deepEqual(getUpdateSettings(file), { checkAutomatically: true, includePrereleases: false });
+    save({ updates: { checkAutomatically: 'no', includePrereleases: 0 } }); // not booleans: the defaults
+    assert.deepEqual(getUpdateSettings(file), { checkAutomatically: true, includePrereleases: true });
     fs.rmSync(file, { force: true });
   });
 

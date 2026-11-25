@@ -96,6 +96,28 @@ export interface SavedFolds {
   maps: string[];
 }
 
+/** The two update settings (Settings in the sidebar); both on by default. */
+export interface UpdateSettings {
+  /** Check a few seconds after startup and every 4 hours. Help → Check for Updates… works either way. */
+  checkAutomatically: boolean;
+  /** Offer pre-releases (alpha, beta, rc) too, not only full releases. */
+  includePrereleases: boolean;
+}
+
+/**
+ * Where an update stands (electron/updates/updater.ts). 'available': found, the download starting; 'downloading':
+ * `percent` done; 'ready': downloaded, installed on restart; 'notify': a newer version exists, but this install can't
+ * update itself (macOS, the .deb), `url` is its release page; 'none': nothing newer; 'error': the check or download
+ * failed (`message`).
+ */
+export interface UpdateStatus {
+  state: 'available' | 'downloading' | 'ready' | 'notify' | 'none' | 'error';
+  version?: string;
+  percent?: number;
+  url?: string;
+  message?: string;
+}
+
 export interface EditorHost {
   openFile(title: string): Promise<OpenedFile[]>;
   readFile(path: string): Promise<OpenedFile>;
@@ -143,6 +165,17 @@ export interface EditorHost {
   /** The panes' widths as the user left them (the splitters), kept with the window's place. */
   getLayout(): Promise<PaneLayout | undefined>;
   saveLayout(layout: PaneLayout): void;
+  /** The update settings, kept in the main process's settings file. */
+  getUpdateSettings(): Promise<UpdateSettings>;
+  /** Changes either or both update settings (from the next check on); returns them as they are now. */
+  setUpdateSettings(change: Partial<UpdateSettings>): Promise<UpdateSettings>;
+  /** Where an update stands now, and each change to it. */
+  getUpdateStatus(): Promise<UpdateStatus | undefined>;
+  onUpdateStatus(handler: (status: UpdateStatus) => void): () => void;
+  /** Restarts into the downloaded update. Ask about unsaved changes first: the window then closes without asking. */
+  installUpdate(): void;
+  /** Opens one of the project's release pages on GitHub in the browser (other URLs are ignored). */
+  openReleasePage(url: string): void;
   /** Whether anything is unsaved, for File → Discard All Unsaved Changes. */
   setUnsaved(unsaved: boolean): void;
   /** Whether a project is open, for File → Close Project. */
@@ -200,6 +233,12 @@ const browserHost: EditorHost = {
   saveFolds: () => {},
   getLayout: async () => undefined,
   saveLayout: () => {},
+  getUpdateSettings: async () => ({ checkAutomatically: true, includePrereleases: true }),
+  setUpdateSettings: async (change) => ({ checkAutomatically: true, includePrereleases: true, ...change }),
+  getUpdateStatus: async () => undefined,
+  onUpdateStatus: () => () => {},
+  installUpdate: () => {},
+  openReleasePage: () => {},
   setUnsaved: () => {},
   setProjectOpen: () => {},
   projectClosed: () => {},

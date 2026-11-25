@@ -12,6 +12,7 @@ import { host } from './services/host';
 import type { DocFormat } from './services/metadata-document';
 import { MetadataTree } from './services/metadata-tree';
 import { applyTheme, onSystemThemeChange } from './services/theme';
+import { Updates } from './services/updates';
 
 // The panes' widths, in pixels: the sidebar's default and minimum, the right pane's minimum, the middle column's
 // minimum, and the splitters between them.
@@ -54,6 +55,7 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
 export class App {
   readonly store = inject(EditorStore);
   private readonly tree = inject(MetadataTree);
+  private readonly updates = inject(Updates);
 
   /** The model type the main area shows: the selection, when it's a model type that's still there. */
   readonly selectedModel = computed(() => {
@@ -99,6 +101,8 @@ export class App {
         case 'addSourceFolder': return void this.store.addSourceFolder();
         case 'reloadSources': return void this.store.reloadSources();
         case 'openRecent': return void (arg && this.store.openPath(arg));
+        // Help → Check for Updates… found the update already downloaded, and the user chose to restart for it.
+        case 'installUpdate': return void this.updates.install();
       }
     });
     // Closing the window: asks about unsaved changes first, and closes only if the user doesn't cancel.

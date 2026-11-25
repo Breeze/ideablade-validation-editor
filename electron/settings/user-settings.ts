@@ -1,9 +1,9 @@
 // What the editor remembers for the user besides the window's place and the recent projects: what the sidebar showed
-// per workspace (the selection, the folded files and maps), the folder last saved to, and the panes' widths. Kept in
-// the settings file (settings-file.ts); the renderer reads and writes them through the `ui:*` handlers
-// (ipc/settings.ts), and the Save dialog (ipc/files.ts) uses the folder.
+// per workspace (the selection, the folded files and maps), the folder last saved to, the panes' widths, and the update
+// settings. Kept in the settings file (settings-file.ts); the renderer reads and writes them through the `ui:*`
+// handlers (ipc/settings.ts) and `updates:*` (ipc/updates.ts), and the Save dialog (ipc/files.ts) uses the folder.
 import fs from 'node:fs';
-import type { PaneLayout, SavedFolds, SavedSelection } from '../types';
+import type { PaneLayout, SavedFolds, SavedSelection, UpdateSettings } from '../types';
 import { isNumber, readSettings, updateSettings } from './settings-file';
 
 // What was selected in the sidebar (a model, or a file's settings), per workspace: the project file, or the first
@@ -81,4 +81,23 @@ export function getLayout(file: string): PaneLayout | undefined {
 /** Saves the panes' widths as the user left them; only the two known ones are kept. */
 export function setLayout(file: string, layout: PaneLayout | undefined): void {
   updateSettings(file, (state) => ({ ...state, layout: { sidebar: layout?.sidebar, side: layout?.side } }));
+}
+
+// Updates (updates/updater.ts): whether to check automatically, and whether pre-releases count. Both on by default.
+
+/** The update settings, each at its default (on) unless saved as a boolean. */
+export function getUpdateSettings(file: string): UpdateSettings {
+  const saved = readSettings(file)['updates'];
+  const s = saved && typeof saved === 'object' ? (saved as Record<string, unknown>) : {};
+  const flag = (v: unknown): boolean => (typeof v === 'boolean' ? v : true);
+  return { checkAutomatically: flag(s['checkAutomatically']), includePrereleases: flag(s['includePrereleases']) };
+}
+
+/** Saves a change to the update settings (either or both); returns them as they are now. */
+export function setUpdateSettings(file: string, change: Partial<UpdateSettings>): UpdateSettings {
+  const settings = { ...getUpdateSettings(file) };
+  if (typeof change.checkAutomatically === 'boolean') settings.checkAutomatically = change.checkAutomatically;
+  if (typeof change.includePrereleases === 'boolean') settings.includePrereleases = change.includePrereleases;
+  updateSettings(file, (state) => ({ ...state, updates: settings }));
+  return settings;
 }

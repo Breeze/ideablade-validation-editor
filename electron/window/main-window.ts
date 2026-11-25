@@ -1,5 +1,6 @@
 // The editor's one window: creating it where it was last closed, loading the renderer, and closing it only once the
-// renderer has agreed (it asks about unsaved changes first). Also the handlers that act on the window itself: its
+// renderer has agreed (it asks about unsaved changes first; installing an update has asked already, so it skips that,
+// setCloseWithoutAsking). Also the handlers that act on the window itself: its
 // title, the colour theme, the question dialog, and closing for real.
 //
 // main.ts creates the window once the app is ready; everything else reaches it through mainWindow(). The IPC handlers
@@ -67,6 +68,14 @@ export function createWindow(): void {
     e.preventDefault();
     win.webContents.send('app:close-requested');
   });
+}
+
+/**
+ * Lets the window close without asking the renderer first (on), or makes it ask again (off). For installing an update
+ * (updates/updater.ts): the renderer has asked about unsaved changes already, before it asked to install.
+ */
+export function setCloseWithoutAsking(on: boolean): void {
+  forceClose = on;
 }
 
 /** Registers the handlers for the window itself: title, theme, the question dialog, and closing. */
