@@ -15,6 +15,8 @@ const {
   clearLastProject,
   getRecentProjects,
   clearRecentProjects,
+  getLastSaveFolder,
+  setLastSaveFolder,
 } = require('./window-state.cjs');
 
 let win;
@@ -90,13 +92,22 @@ ipcMain.handle('file:save', async (_e, filePath, text) => {
   return filePath;
 });
 
-/** Asks where to save; the format follows the extension chosen. The renderer writes the file. */
-ipcMain.handle('file:choose-save-path', async (_e, defaultPath) => {
+/**
+ * Asks where to save; the format follows the extension chosen. The renderer writes the file. A file that has a path
+ * starts next to it; a new one (just a name) in the folder last chosen here, else the open project's, else Documents.
+ */
+ipcMain.handle('file:choose-save-path', async (_e, suggestion, projectDir) => {
   const filters = metadataFilters.slice(1, 4); // the metadata formats
-  const ext = path.extname(defaultPath ?? '').slice(1).toLowerCase();
+  const ext = path.extname(suggestion ?? '').slice(1).toLowerCase();
   filters.sort((a, b) => (b.extensions[0] === ext) - (a.extensions[0] === ext)); // the current format first
+  const name = suggestion ?? 'validation.metadata.json';
+  const defaultPath = path.isAbsolute(name)
+    ? name
+    : path.join(getLastSaveFolder(windowStateFile()) ?? projectDir ?? app.getPath('documents'), name);
   const result = await dialog.showSaveDialog(win, { defaultPath, filters });
-  return result.canceled ? undefined : result.filePath;
+  if (result.canceled || !result.filePath) return undefined;
+  setLastSaveFolder(windowStateFile(), path.dirname(result.filePath));
+  return result.filePath;
 });
 
 // TypeScript metadata needs the TypeScript compiler, so the renderer asks for it here. These work on text only.
@@ -258,8 +269,8 @@ ipcMain.handle('app:startup-args', () => {
   }
   return { files, sources };
 });
-function sendMenu(command) {
-  return () => win.webContents.send('menu', command);
+function sendMenu(command, arg) {
+  return () => win.webContents.send('menu', command, arg);
 }
 
 /** File → Open Recent Project: the recent projects, numbered (Alt+F, R, 1 opens the latest), and a way to clear them. */
@@ -293,7 +304,14 @@ const buildMenu = () => Menu.buildFromTemplate([
   {
     label: '&File',
     submenu: [
-      { label: '&New', accelerator: 'CmdOrCtrl+N', click: sendMenu('new') },
+      {
+        label: '&New',
+        submenu: [
+          { label: '&JSON', accelerator: 'CmdOrCtrl+N', click: sendMenu('new', 'json') },
+          { label: '&TypeScript', click: sendMenu('new', 'ts') },
+          { label: '&C#', click: sendMenu('new', 'cs') },
+        ],
+      },
       { label: '&Open…', accelerator: 'CmdOrCtrl+O', click: sendMenu('open') },
       { label: 'Open &Recent Project', submenu: recentProjectsMenu() },
       { label: 'Close &Project', enabled: projectOpen, click: sendMenu('closeProject') },

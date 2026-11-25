@@ -80,7 +80,11 @@ export interface EditorHost {
   readFile(path: string): Promise<OpenedFile>;
   saveFile(path: string, text: string): Promise<string>;
   /** Asks where to save; the format follows the extension the user picks. */
-  chooseSavePath(defaultPath: string): Promise<string | undefined>;
+  /**
+   * Asks where to save. A full path starts next to that file; a bare name (a new file) in the folder last chosen, else
+   * `projectDir` (the open project's), else Documents.
+   */
+  chooseSavePath(suggestion: string, projectDir?: string): Promise<string | undefined>;
   readTsMetadata(text: string, fileName: string): Promise<TsMetadata[]>;
   writeTsMetadata(text: string, fileName: string, name: string, json: JsonObject): Promise<string>;
   newTsMetadata(name: string, json: JsonObject): Promise<string>;

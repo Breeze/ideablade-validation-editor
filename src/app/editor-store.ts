@@ -26,6 +26,14 @@ import type { ThemeSetting } from './theme';
 /** Where a document is kept: a JSON file, or a metadata map in a TypeScript or C# file. */
 export type DocFormat = 'json' | 'ts' | 'cs';
 
+/** What Save as suggests for a new document, by format; the TS constant and C# class are named after the file. */
+const NEW_FILE_NAMES: Record<DocFormat, string> = {
+  json: 'validation.metadata.json',
+  ts: 'validation-metadata.ts',
+  cs: 'ValidationMetadata.cs',
+};
+const NEW_TS_NAME = 'validationMetadata';
+
 export function formatOf(path: string): DocFormat {
   return /\.tsx?$/i.test(path) ? 'ts' : /\.cs$/i.test(path) ? 'cs' : 'json';
 }
@@ -604,9 +612,17 @@ export class EditorStore {
 
   // ---- Opening and closing
 
-  newFile(): void {
-    this.add([new MetadataDocument({ doc: newDocument() })]);
-    this.status.set('New document');
+  /**
+   * A new, unsaved metadata document in the format chosen (File → New, the New button): JSON, or a map for a
+   * TypeScript or C# file. Save asks where, suggesting a name in that format.
+   */
+  newFile(format: DocFormat = 'json'): void {
+    const doc =
+      format === 'json'
+        ? new MetadataDocument({ doc: newDocument() })
+        : new MetadataDocument({ doc: {}, format, name: format === 'ts' ? NEW_TS_NAME : 'Json' });
+    this.add([doc]);
+    this.status.set(`New ${FORMAT_LABELS[format]} document`);
   }
 
   async open(): Promise<void> {
@@ -872,7 +888,13 @@ export class EditorStore {
    */
   async fileText(doc: MetadataDocument): Promise<string | undefined> {
     const path = doc.path();
-    if (!path || doc.format() === 'json') return undefined;
+    if (doc.format() === 'json') return undefined;
+    // Not saved yet: the new file Save as would write, named as it suggests.
+    if (!path) {
+      return doc.format() === 'ts'
+        ? host.newTsMetadata(NEW_TS_NAME, doc.doc())
+        : newCsMetadataFile(pascalCaseFromFile(NEW_FILE_NAMES.cs), doc.doc());
+    }
     let text = this.diskText(path) ?? (await host.readFile(path)).text;
     // Only maps with unsaved changes, as only those are written: the others stay exactly as they are in the file.
     const maps = this.documents().filter(
@@ -892,8 +914,10 @@ export class EditorStore {
       return false;
     }
     const current = doc.path();
-    const suggestion = current ?? 'validation.metadata.json';
-    const path = await host.chooseSavePath(suggestion);
+    const suggestion = current ?? NEW_FILE_NAMES[doc.format()];
+    // A new file starts in the folder last saved to, else the project's (the main process picks).
+    const projectDir = this.project()?.path.replace(/[\\/][^\\/]*$/, '');
+    const path = await host.chooseSavePath(suggestion, projectDir);
     if (!path) return false;
     if (current && path.toLowerCase() === current.toLowerCase() && formatOf(path) === doc.format()) return this.save(doc);
     const format = formatOf(path);

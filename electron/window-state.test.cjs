@@ -14,6 +14,8 @@ const {
   clearLastProject,
   getRecentProjects,
   clearRecentProjects,
+  getLastSaveFolder,
+  setLastSaveFolder,
   DEFAULT_WINDOW_SIZE,
 } = require('./window-state.cjs');
 
@@ -92,6 +94,17 @@ describe('the window state', () => {
     assert.equal(getLastProject(file), undefined);
     assert.ok('recentProjects' in JSON.parse(fs.readFileSync(file, 'utf8'))); // the rest of the file stays
     fs.rmSync(dir, { recursive: true });
+    fs.rmSync(file, { force: true });
+  });
+
+  it('remembers the folder last saved to, while it is still there', () => {
+    fs.rmSync(file, { force: true });
+    assert.equal(getLastSaveFolder(file), undefined);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vews-'));
+    setLastSaveFolder(file, dir);
+    assert.equal(getLastSaveFolder(file), dir);
+    fs.rmSync(dir, { recursive: true });
+    assert.equal(getLastSaveFolder(file), undefined); // gone: the project's folder is used instead
     fs.rmSync(file, { force: true });
   });
 

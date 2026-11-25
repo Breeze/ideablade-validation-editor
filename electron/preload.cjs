@@ -5,7 +5,7 @@ contextBridge.exposeInMainWorld('editorHost', {
   openFile: (title) => ipcRenderer.invoke('file:open', title),
   readFile: (path) => ipcRenderer.invoke('file:read', path),
   saveFile: (path, text) => ipcRenderer.invoke('file:save', path, text),
-  chooseSavePath: (defaultPath) => ipcRenderer.invoke('file:choose-save-path', defaultPath),
+  chooseSavePath: (suggestion, projectDir) => ipcRenderer.invoke('file:choose-save-path', suggestion, projectDir),
   readTsMetadata: (text, fileName) => ipcRenderer.invoke('ts:read-metadata', text, fileName),
   writeTsMetadata: (text, fileName, name, json) => ipcRenderer.invoke('ts:write-metadata', text, fileName, name, json),
   newTsMetadata: (name, json) => ipcRenderer.invoke('ts:new-metadata', name, json),

@@ -132,6 +132,18 @@ function clearRecentProjects(file) {
   updateFile(file, (state) => ({ ...state, recentProjects: [] }));
 }
 
+// The folder last chosen in a Save dialog, where saving the next new file starts. A user setting too.
+
+/** The folder, if one was chosen and it's still there. */
+function getLastSaveFolder(file) {
+  const folder = readFile(file).lastSaveFolder;
+  return typeof folder === 'string' && fs.existsSync(folder) ? folder : undefined;
+}
+
+function setLastSaveFolder(file, folder) {
+  updateFile(file, (state) => ({ ...state, lastSaveFolder: folder }));
+}
+
 module.exports = {
   loadWindowState,
   trackWindowState,
@@ -143,5 +155,7 @@ module.exports = {
   clearLastProject,
   getRecentProjects,
   clearRecentProjects,
+  getLastSaveFolder,
+  setLastSaveFolder,
   DEFAULT_WINDOW_SIZE: DEFAULT,
 };

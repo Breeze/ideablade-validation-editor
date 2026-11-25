@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } 
 
 import { modelKeys } from '../lib/doc';
 import { type ModelSource, fileName } from '../lib/sources';
-import { EditorStore, FORMAT_LABELS, type MetadataDocument } from './editor-store';
+import { type DocFormat, EditorStore, FORMAT_LABELS, type MetadataDocument } from './editor-store';
 import { host } from './host';
 import { THEME_LABELS, type ThemeSetting, applyTheme, onSystemThemeChange } from './theme';
 import { uniqueId } from './inline-issues';
@@ -22,7 +22,16 @@ interface Counts {
   imports: [ModelEditor, DocumentEditor, JsonView, IssuesPanel, TesterPanel],
   template: `
     <header class="toolbar">
-      <button (click)="store.newFile()" title="Ctrl+N">New</button>
+      <span class="menu-button">
+        <button (click)="newMenuOpen.set(!newMenuOpen())" (blur)="closeNewMenuSoon()" [class.open]="newMenuOpen()" title="A new metadata file: JSON, TypeScript or C#">New ▾</button>
+        @if (newMenuOpen()) {
+          <span class="menu">
+            @for (f of newFormats; track f.format) {
+              <button (mousedown)="$event.preventDefault()" (click)="newFile(f.format)" [title]="f.hint">{{ f.label }}</button>
+            }
+          </span>
+        }
+      </span>
       <button (click)="store.open()" title="Ctrl+O: JSON, TypeScript or C# files">Open…</button>
       <button (click)="store.save()" title="Ctrl+S" [disabled]="!store.active()" [class.primary]="store.active()?.dirty()">Save</button>
       <button (click)="store.saveAs()" title="Ctrl+Shift+S: as JSON, TypeScript or C#" [disabled]="!store.active()">Save as…</button>
@@ -130,7 +139,8 @@ interface Counts {
         @if (!store.active()) {
           <div class="empty-state">
             <p>Open a project (<code>*.ivproj</code>), or File → Open Recent Project, or validation metadata: JSON files, TypeScript files with a <code>ModelValidationMetadataMap</code>, or C# files with the metadata as a JSON string. Open several to edit them side by side; the checks see them together, as the library merges them.</p>
-            <button class="primary" (click)="store.open()">Open…</button> <button (click)="store.newFile()">New</button>
+            <button class="primary" (click)="store.open()">Open…</button>
+            @for (f of newFormats; track f.format) { <button (click)="newFile(f.format)" [title]="f.hint">New {{ f.label }}</button> }
           </div>
         } @else if (selectedModel(); as name) {
           @if (store.readOnly(); as reason) { <div class="banner">Read-only: {{ reason }}</div> }
@@ -173,6 +183,13 @@ interface Counts {
 export class App {
   readonly store = inject(EditorStore);
   readonly pane = signal<Pane>('json');
+  /** The New button's choices, as in File → New. */
+  readonly newFormats: { format: DocFormat; label: string; hint: string }[] = [
+    { format: 'json', label: 'JSON', hint: 'Ctrl+N: a validation.metadata.json file' },
+    { format: 'ts', label: 'TypeScript', hint: 'A .ts file exporting a typed ModelValidationMetadataMap' },
+    { format: 'cs', label: 'C#', hint: 'A .cs file with the JSON as a constant and the typed map parsed from it' },
+  ];
+  readonly newMenuOpen = signal(false);
   /** The code tab is named after what the selected document is saved as. */
   readonly codeTabLabel = computed(() => ({ ts: 'TypeScript', cs: 'C#' })[this.store.active()?.format() as 'ts' | 'cs'] ?? 'JSON');
   /** What's typed in each metadata file's "model type…" field, by document. */
@@ -207,7 +224,7 @@ export class App {
 
     host.onMenu((command, arg) => {
       switch (command) {
-        case 'new': return void this.store.newFile();
+        case 'new': return void this.store.newFile((arg as DocFormat | undefined) ?? 'json');
         case 'open': return void this.store.open();
         case 'save': return void this.store.save();
         case 'saveAs': return void this.store.saveAs();
@@ -261,6 +278,16 @@ export class App {
   missingTypesOf(d: MetadataDocument): string[] {
     const have = new Set(this.modelsOf(d));
     return this.store.allModelTypes().filter((t) => !have.has(t));
+  }
+
+  newFile(format: DocFormat): void {
+    this.newMenuOpen.set(false);
+    this.store.newFile(format);
+  }
+
+  /** Closes the New menu when focus leaves its button (after a click on a choice has gone through). */
+  closeNewMenuSoon(): void {
+    setTimeout(() => this.newMenuOpen.set(false), 150);
   }
 
   setNewModel(docId: string, value: string): void {
