@@ -1,19 +1,26 @@
 import { ChangeDetectionStrategy, Component, ElementRef, afterNextRender, computed, effect, inject, signal, untracked, viewChild, type OnDestroy } from '@angular/core';
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { javascript } from '@codemirror/lang-javascript';
 import { json, jsonParseLinter } from '@codemirror/lang-json';
-import { HighlightStyle, bracketMatching, foldGutter, foldKeymap, indentOnInput, indentUnit, syntaxHighlighting } from '@codemirror/language';
+import { HighlightStyle, StreamLanguage, bracketMatching, foldGutter, foldKeymap, indentOnInput, indentUnit, syntaxHighlighting } from '@codemirror/language';
 import { linter } from '@codemirror/lint';
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search';
 import { Annotation, Compartment, EditorState, Transaction, type ChangeSpec } from '@codemirror/state';
 import { EditorView, drawSelection, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers } from '@codemirror/view';
+import { csharp } from '@codemirror/legacy-modes/mode/clike';
 import { tags } from '@lezer/highlight';
 
 import { lineOfPath } from '../lib/doc';
-import { EditorStore } from './editor-store';
+import { EditorStore, type MetadataDocument } from './editor-store';
 
-// VS Code's JSON colours, from the theme (styles.css: --syn-*): keys, strings, numbers, true/false/null.
+// VS Code's colours, from the theme (styles.css: --syn-*): for JSON keys, strings, numbers, true/false/null; for TS and
+// C# also keywords, types and comments.
 const highlight = HighlightStyle.define([
+  { tag: [tags.keyword, tags.modifier, tags.definitionKeyword, tags.controlKeyword, tags.moduleKeyword], color: 'var(--syn-keyword)' },
+  { tag: [tags.typeName, tags.className, tags.namespace], color: 'var(--syn-type)' },
+  { tag: [tags.comment, tags.lineComment, tags.blockComment], color: 'var(--syn-comment)' },
+  { tag: [tags.variableName, tags.definition(tags.variableName)], color: 'var(--syn-variable)' },
   { tag: tags.propertyName, color: 'var(--syn-property)' },
   { tag: tags.string, color: 'var(--syn-string)' },
   { tag: tags.number, color: 'var(--syn-number)' },
@@ -59,6 +66,15 @@ const theme = EditorView.theme({
   '.cm-diagnostic-error': { borderLeftColor: 'var(--error)' },
 });
 
+/** What the view shows: the document as JSON (editable), or its TS or C# file as saving writes it (read-only). */
+type Shown = 'json' | 'ts' | 'cs';
+
+function languageFor(shown: Shown) {
+  if (shown === 'ts') return [javascript({ typescript: true })];
+  if (shown === 'cs') return [StreamLanguage.define(csharp)];
+  return [json(), linter(jsonParseLinter(), { delay: 300 })];
+}
+
 /** Marks the transactions that bring the store's text in, so they aren't sent back to it as edits. */
 const fromStore = Annotation.define<boolean>();
 
@@ -73,7 +89,9 @@ function minimalChange(before: string, after: string): ChangeSpec {
 }
 
 /**
- * The selected document's JSON, kept in step with the forms in both directions. A code editor (CodeMirror, with its
+ * The selected document's JSON, kept in step with the forms in both directions. For a map in a TS or C# file it shows
+ * that file instead, as saving would write it now (imports and the rest of the file included), with a switch to the
+ * JSON, which can be edited. A code editor (CodeMirror, with its
  * JSON support): Enter indents to the level the line is at, and a `{` or `[` it splits goes on a line of its own;
  * closing brackets and quotes are added, matching brackets shown, objects and arrays fold, Ctrl+F searches, and a
  * syntax error is underlined where the parser stops. Text that doesn't parse isn't applied; the forms keep the last
@@ -85,7 +103,17 @@ function minimalChange(before: string, after: string): ChangeSpec {
   template: `
     @if (store.active(); as d) {
       @if (d.format() !== 'json') {
-        <div class="json-note">{{ d.label() }} as JSON. It's saved as {{ d.format() === 'ts' ? 'a TypeScript object' : 'a C# JSON string' }} in {{ d.fileLabel() }}.</div>
+        <div class="view-switch">
+          <button [class.active]="mode() === 'file'" (click)="mode.set('file')">{{ d.format() === 'ts' ? 'TypeScript' : 'C#' }}</button>
+          <button [class.active]="mode() === 'json'" (click)="mode.set('json')">JSON</button>
+          <span class="view-note">
+            @if (shown() !== 'json') {
+              {{ d.fileLabel() }} as saving writes it, with your changes. Read-only here: edit the rules in the forms or as JSON.
+            } @else {
+              {{ d.name() }} as JSON, which you can edit. It's saved as {{ d.format() === 'ts' ? 'a TypeScript object' : 'a C# JSON string' }}.
+            }
+          </span>
+        </div>
       }
       @if (d.readOnly()) { <div class="json-note">Read-only: {{ d.readOnly() }}</div> }
     }
@@ -98,27 +126,58 @@ function minimalChange(before: string, after: string): ChangeSpec {
 export class JsonView implements OnDestroy {
   readonly store = inject(EditorStore);
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
-  readonly text = computed(() => this.store.invalidText()?.text ?? this.store.jsonText());
+  /** For TS and C# documents: their file (the default) or their JSON. */
+  readonly mode = signal<'file' | 'json'>('file');
+  readonly shown = computed<Shown>(() => {
+    const format = this.store.active()?.format();
+    return format === 'ts' || format === 'cs' ? (this.mode() === 'file' ? format : 'json') : 'json';
+  });
+  /** The TS or C# file as saving writes it, worked out a moment after each change (TS is written in the main process). */
+  private readonly fileText = signal<{ docId: string; text: string } | undefined>(undefined);
+  readonly text = computed(() => {
+    if (this.shown() === 'json') return this.store.invalidText()?.text ?? this.store.jsonText();
+    const file = this.fileText();
+    return file && file.docId === this.store.active()?.id ? file.text : '';
+  });
   private readonly view = signal<EditorView | undefined>(undefined);
   private readonly readOnly = new Compartment();
-  /** The document the editor shows: another one gets a fresh editor state, so undo doesn't cross documents. */
-  private docId?: string;
+  /** What the editor shows (document and view): another gets a fresh editor state, so undo doesn't cross them. */
+  private shownKey?: string;
+  /** The issue last scrolled to, so switching views doesn't scroll to it again. */
+  private handledFocus?: unknown;
 
   constructor() {
     afterNextRender(() => {
-      this.docId = untracked(() => this.store.active()?.id);
-      this.view.set(new EditorView({ parent: this.host().nativeElement, state: this.createState(untracked(this.text), untracked(this.isReadOnly)) }));
+      this.shownKey = untracked(this.key);
+      this.view.set(
+        new EditorView({ parent: this.host().nativeElement, state: this.createState(untracked(this.text), untracked(this.isReadOnly), untracked(this.shown)) }),
+      );
     });
     // The store's text (another document, an edit in the forms, a reload) replaces what differs; our own edits come back equal.
     effect(() => {
       const view = this.view();
       if (view) this.sync(view, this.text(), this.isReadOnly());
     });
-    // Scroll to, and select the line of, what the clicked issue is about. Only a new focus path does this, not every edit.
+    // The file of a TS or C# document, again a moment after each change to it or to another map in the same file.
+    effect((onCleanup) => {
+      const doc = this.store.active();
+      if (!doc || this.shown() === 'json') return;
+      const siblings = this.store.documents().filter((d) => d.path() === doc.path());
+      for (const d of siblings) d.doc(); // what the file depends on
+      const timer = setTimeout(() => void this.refreshFile(doc), 150);
+      onCleanup(() => clearTimeout(timer));
+    });
+    // Scroll to, and select the line of, what the clicked issue is about, in the JSON. Only a new focus path does this,
+    // not every edit or switch.
     effect(() => {
       const path = this.store.focusPath();
       const view = this.view();
-      if (!path || !view) return;
+      if (!path || !view || path === this.handledFocus) return;
+      if (this.shown() !== 'json') {
+        this.mode.set('json'); // issue paths are JSON paths; this runs again once the JSON shows
+        return;
+      }
+      this.handledFocus = path;
       untracked(() => this.sync(view, this.text(), this.isReadOnly()));
       const doc = view.state.doc;
       const line = doc.line(Math.min(lineOfPath(doc.toString(), path) ?? 1, doc.lines));
@@ -126,13 +185,23 @@ export class JsonView implements OnDestroy {
     });
   }
 
-  private readonly isReadOnly = computed(() => !!this.store.active()?.readOnly());
+  private readonly isReadOnly = computed(() => !!this.store.active()?.readOnly() || this.shown() !== 'json');
+  private readonly key = computed(() => `${this.store.active()?.id}:${this.shown()}`);
+
+  private async refreshFile(doc: MetadataDocument): Promise<void> {
+    try {
+      const text = await this.store.fileText(doc);
+      if (text !== undefined) this.fileText.set({ docId: doc.id, text });
+    } catch (e) {
+      this.fileText.set({ docId: doc.id, text: `// ${(e as Error).message}` });
+    }
+  }
 
   private sync(view: EditorView, text: string, readOnly: boolean): void {
-    const id = this.store.active()?.id;
-    if (id !== this.docId) {
-      this.docId = id;
-      view.setState(this.createState(text, readOnly));
+    const key = this.key();
+    if (key !== this.shownKey) {
+      this.shownKey = key;
+      view.setState(this.createState(text, readOnly, this.shown()));
       return;
     }
     const current = view.state.doc.toString();
@@ -144,7 +213,7 @@ export class JsonView implements OnDestroy {
     }
   }
 
-  private createState(text: string, readOnly: boolean): EditorState {
+  private createState(text: string, readOnly: boolean, shown: Shown): EditorState {
     return EditorState.create({
       doc: text,
       extensions: [
@@ -159,16 +228,15 @@ export class JsonView implements OnDestroy {
         highlightActiveLine(),
         highlightSelectionMatches(),
         search({ top: true }),
-        json(),
+        ...languageFor(shown),
         syntaxHighlighting(highlight),
-        linter(jsonParseLinter(), { delay: 300 }),
         EditorState.tabSize.of(2),
         indentUnit.of('  '),
         keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
         this.readOnly.of(readOnlyExtensions(readOnly)),
         theme,
         EditorView.updateListener.of((update) => {
-          if (update.docChanged && !update.transactions.some((t) => t.annotation(fromStore))) {
+          if (shown === 'json' && update.docChanged && !update.transactions.some((t) => t.annotation(fromStore))) {
             this.store.setJsonText(update.state.doc.toString());
           }
         }),

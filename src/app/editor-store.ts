@@ -865,6 +865,25 @@ export class EditorStore {
     return true;
   }
 
+  /**
+   * A TS or C# metadata file as saving would write it now: the file as last read or saved, with each of its open maps
+   * (a file can hold several) that has unsaved changes written the way Save writes them. Imports, usings and the rest of
+   * the file are as they are. Undefined for JSON documents.
+   */
+  async fileText(doc: MetadataDocument): Promise<string | undefined> {
+    const path = doc.path();
+    if (!path || doc.format() === 'json') return undefined;
+    let text = this.diskText(path) ?? (await host.readFile(path)).text;
+    // Only maps with unsaved changes, as only those are written: the others stay exactly as they are in the file.
+    const maps = this.documents().filter(
+      (d) => d.path()?.toLowerCase() === path.toLowerCase() && d.dirty() && !d.readOnly() && !d.invalidText(),
+    );
+    for (const d of maps) {
+      text = d.format() === 'ts' ? await host.writeTsMetadata(text, path, d.name()!, d.doc()) : writeCsMetadata(text, d.name()!, d.doc());
+    }
+    return text;
+  }
+
   /** Saves a document to a new file; the extension picks the format: .json, .ts or .cs. */
   async saveAs(doc = this.active()): Promise<boolean> {
     if (!doc) return false;

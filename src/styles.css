@@ -46,6 +46,8 @@
   --syn-property: #1d4ed8;
   --syn-variable: #1f2933;
   --syn-operator: #64748b;
+  --syn-type: #267f99;
+  --syn-comment: #008000;
 
   --mono: 'Cascadia Mono', Consolas, 'Courier New', monospace;
   font-family: 'Segoe UI', system-ui, sans-serif;
@@ -99,6 +101,8 @@
   --syn-property: #9cdcfe;
   --syn-variable: #9cdcfe;
   --syn-operator: #d4d4d4;
+  --syn-type: #4ec9b0;
+  --syn-comment: #6a9955;
 }
 
 * { box-sizing: border-box; }
@@ -277,6 +281,10 @@ app-expression-input { display: block; margin-top: 2px; }
 .add-row.add-model button { font-size: 13px; padding: 1px 8px; }
 .banner { background: var(--info-soft); color: var(--info); border-radius: 4px; padding: 6px 10px; margin: 6px 0; font-size: 13px; }
 .banner.warning { background: var(--warning-soft); color: var(--warning); }
+.view-switch { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.view-switch button { font-size: 13px; padding: 1px 10px; }
+.view-switch button.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+.view-note { flex-basis: 100%; font-size: 12px; color: var(--muted); margin-top: 2px; }
 .json-note { padding: 6px 10px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
 .issue-group { font-weight: 600; font-size: 12px; color: var(--muted); padding: 8px 4px 2px; }
 .empty-state { max-width: 560px; margin: 60px auto; color: var(--muted); }

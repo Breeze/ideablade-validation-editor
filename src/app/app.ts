@@ -142,7 +142,7 @@ interface Counts {
 
       <aside class="side">
         <div class="tabs">
-          <button [class.active]="pane() === 'json'" (click)="pane.set('json')">JSON</button>
+          <button [class.active]="pane() === 'json'" (click)="pane.set('json')">{{ codeTabLabel() }}</button>
           <button [class.active]="pane() === 'issues'" (click)="pane.set('issues')">
             Issues
             @if (store.errorCount()) { <span class="badge error-badge">{{ store.errorCount() }}</span> }
@@ -173,6 +173,8 @@ interface Counts {
 export class App {
   readonly store = inject(EditorStore);
   readonly pane = signal<Pane>('json');
+  /** The code tab is named after what the selected document is saved as. */
+  readonly codeTabLabel = computed(() => ({ ts: 'TypeScript', cs: 'C#' })[this.store.active()?.format() as 'ts' | 'cs'] ?? 'JSON');
   /** What's typed in each metadata file's "model type…" field, by document. */
   readonly newModels = signal<Record<string, string>>({});
   readonly typesListId = uniqueId('model-types');
