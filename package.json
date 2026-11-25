@@ -1,10 +1,15 @@
 {
   "name": "ideablade-validation-editor",
   "productName": "IdeaBlade Validation Editor",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.1",
   "description": "Desktop editor for IdeaBlade Validation's JSON validation metadata.",
   "private": true,
   "license": "MIT",
+  "homepage": "https://github.com/Breeze/ideablade-validation-editor",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Breeze/ideablade-validation-editor.git"
+  },
   "author": "IdeaBlade",
   "main": "electron/main.cjs",
   "engines": {
@@ -19,6 +24,8 @@
     "test": "node scripts/build-schema-validator.mjs && ng test --watch=false && node scripts/test-main.mjs",
     "dist": "npm run build && electron-builder --win nsis",
     "dist:dir": "npm run build && electron-builder --win dir",
+    "dist:mac": "npm run build && electron-builder --mac dmg --x64 --arm64",
+    "dist:linux": "npm run build && electron-builder --linux AppImage deb",
     "icon": "electron scripts/build-icon.cjs"
   },
   "dependencies": {
@@ -57,6 +64,7 @@
   "build": {
     "appId": "com.ideablade.validation-editor",
     "productName": "IdeaBlade Validation Editor",
+    "artifactName": "IdeaBlade-Validation-Editor-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "release"
     },
@@ -65,8 +73,10 @@
       "electron/**/*",
       "!electron/**/*.test.cjs",
       "package.json",
-      "build/icon.ico"
+      "build/icon.ico",
+      "build/icon.png"
     ],
+    "afterPack": "scripts/adhoc-sign-mac.cjs",
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico"
@@ -75,7 +85,32 @@
       "oneClick": false,
       "perMachine": false,
       "selectPerMachineByDefault": true,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "IdeaBlade-Validation-Editor-Setup-${version}.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.png",
+      "identity": null
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development",
+      "icon": "build/icon.png",
+      "maintainer": "IdeaBlade",
+      "synopsis": "Editor for IdeaBlade Validation metadata"
     },
     "fileAssociations": [
       {
@@ -83,7 +118,8 @@
         "name": "IdeaBlade Validation Project",
         "description": "IdeaBlade Validation Project",
         "role": "Editor",
-        "icon": "icon.ico"
+        "icon": "icon.ico",
+        "mimeType": "application/x-ideablade-validation-project"
       }
     ]
   }
