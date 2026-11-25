@@ -12,6 +12,7 @@ const {
   setSelection,
   getLastProject,
   setLastProject,
+  clearLastProject,
   getRecentProjects,
   clearRecentProjects,
 } = require('./window-state.cjs');
@@ -114,6 +115,14 @@ function projectUsed(usedPath) {
   app.addRecentDocument(projectPath);
   if (before?.toLowerCase() !== projectPath.toLowerCase()) updateMenu();
 }
+// File → Close Project is there while a project is open; a closed one isn't reopened at the next start.
+let projectOpen = false;
+ipcMain.on('project:open-state', (_e, open) => {
+  if (projectOpen === !!open) return;
+  projectOpen = !!open;
+  updateMenu();
+});
+ipcMain.on('project:closed', () => clearLastProject(windowStateFile()));
 ipcMain.handle('project:read', async (_e, projectPath) => {
   const project = await readProject(projectPath);
   projectUsed(projectPath);
@@ -287,14 +296,14 @@ const buildMenu = () => Menu.buildFromTemplate([
       { label: '&New', accelerator: 'CmdOrCtrl+N', click: sendMenu('new') },
       { label: '&Open…', accelerator: 'CmdOrCtrl+O', click: sendMenu('open') },
       { label: 'Open &Recent Project', submenu: recentProjectsMenu() },
+      { label: 'Close &Project', enabled: projectOpen, click: sendMenu('closeProject') },
       { type: 'separator' },
       { label: '&Save', accelerator: 'CmdOrCtrl+S', click: sendMenu('save') },
       { label: 'Save &As…', accelerator: 'CmdOrCtrl+Shift+S', click: sendMenu('saveAs') },
       { label: 'Save A&ll', accelerator: 'CmdOrCtrl+Alt+S', click: sendMenu('saveAll') },
-      { label: '&Close document', accelerator: 'CmdOrCtrl+W', click: sendMenu('close') },
       { type: 'separator' },
       { label: 'Add &source (Breeze, TS, C#)…', accelerator: 'CmdOrCtrl+M', click: sendMenu('addSource') },
-      { label: '&Reload model sources', accelerator: 'F5', click: sendMenu('reloadSources') },
+      { label: 'Reloa&d model sources', accelerator: 'F5', click: sendMenu('reloadSources') },
       { type: 'separator' },
       { role: 'quit' },
     ],

@@ -104,6 +104,10 @@ export interface EditorHost {
   /** What was selected in the sidebar for a workspace (a user setting, kept with the window's place). */
   getSelection(key: string): Promise<SavedSelection | undefined>;
   saveSelection(key: string, selection: SavedSelection): void;
+  /** Whether a project is open, for File → Close Project. */
+  setProjectOpen(open: boolean): void;
+  /** The project was closed: nothing to reopen at the next start. */
+  projectClosed(): void;
   close(): void;
   /** A menu command, with its argument where it has one (File → Open Recent Project: the project's path). */
   onMenu(handler: (command: string, arg?: string) => void): () => void;
@@ -144,6 +148,8 @@ const browserHost: EditorHost = {
   setTheme: () => {},
   getSelection: async () => undefined,
   saveSelection: () => {},
+  setProjectOpen: () => {},
+  projectClosed: () => {},
   close: () => window.close(),
   onMenu: () => () => {},
   onCloseRequested: () => () => {},

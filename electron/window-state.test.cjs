@@ -11,6 +11,7 @@ const {
   setSelection,
   getLastProject,
   setLastProject,
+  clearLastProject,
   getRecentProjects,
   clearRecentProjects,
   DEFAULT_WINDOW_SIZE,
@@ -87,6 +88,9 @@ describe('the window state', () => {
     clearRecentProjects(file);
     assert.deepEqual(getRecentProjects(file), []);
     assert.equal(getLastProject(file), projects[5].toUpperCase()); // still the one to reopen
+    clearLastProject(file); // File → Close Project
+    assert.equal(getLastProject(file), undefined);
+    assert.ok('recentProjects' in JSON.parse(fs.readFileSync(file, 'utf8'))); // the rest of the file stays
     fs.rmSync(dir, { recursive: true });
     fs.rmSync(file, { force: true });
   });

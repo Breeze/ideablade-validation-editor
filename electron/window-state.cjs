@@ -119,6 +119,14 @@ function setLastProject(file, projectPath) {
   });
 }
 
+/** Nothing to reopen: the project was closed. It stays in the recent list. */
+function clearLastProject(file) {
+  updateFile(file, (state) => {
+    const { lastProject, ...rest } = state;
+    return rest;
+  });
+}
+
 /** Empties the recent list. The last project is kept: it's still the one to reopen. */
 function clearRecentProjects(file) {
   updateFile(file, (state) => ({ ...state, recentProjects: [] }));
@@ -132,6 +140,7 @@ module.exports = {
   setSelection,
   getLastProject,
   setLastProject,
+  clearLastProject,
   getRecentProjects,
   clearRecentProjects,
   DEFAULT_WINDOW_SIZE: DEFAULT,

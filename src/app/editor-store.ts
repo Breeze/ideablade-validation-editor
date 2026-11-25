@@ -191,13 +191,19 @@ export class EditorStore {
   /** The project (*.ivproj) in use, as last read or saved: the files and settings a team shares. */
   readonly project = signal<Project | undefined>(undefined);
   /**
-   * What the project file would say now: its metadata files plus the open ones (closing a file doesn't take it out of
-   * the project), the loaded sources, and the shared settings.
+   * Metadata files closed with their ✕: they leave the project when it's saved. Kept as a list rather than taking the
+   * open files as the project's, so a listed file that didn't open (moved, broken) isn't dropped without a word.
+   */
+  private readonly closedMetadata = signal<string[]>([]);
+  /**
+   * What the project file would say now: its metadata files and the newly opened ones, less the ones closed, the
+   * loaded sources, and the shared settings.
    */
   readonly projectState = computed<ProjectState>(() => {
     const open = this.documents().map((d) => d.path()).filter((p): p is string => !!p);
+    const closed = new Set(this.closedMetadata().map((p) => p.toLowerCase()));
     return {
-      metadata: unique([...(this.project()?.metadata ?? []), ...open]),
+      metadata: unique([...(this.project()?.metadata ?? []), ...open]).filter((p) => !closed.has(p.toLowerCase())),
       sources: this.sources().map((s) => s.path),
       otherValidators: this.settings().customValidators,
       camelCase: this.settings().camelCase,
@@ -327,6 +333,8 @@ export class EditorStore {
       return p ? `${p.path}\n${p.sources.join('\n')}` : '';
     });
     effect(() => void host.watchProject(watched() ? watched().split('\n')[0] : undefined));
+    // File → Close Project only while there's one.
+    effect(() => host.setProjectOpen(!!this.project()));
     // The sidebar selection is remembered for this user (with the window's place, not in the project file), once the
     // files are open and the previous one has been restored.
     effect(() => {
@@ -450,6 +458,7 @@ export class EditorStore {
       }
       this.rememberDiskText(path, text);
       this.project.set(project);
+      this.closedMetadata.set([]); // reloaded: the file on disk says which metadata files are in it
       this.applyProjectSettings(project);
       this.sources.set(this.sources().filter((s) => project.sourceFiles.includes(s.path)));
       await this.loadSourcePaths(project.sourceFiles.filter((p) => !this.sources().some((s) => s.path === p)), false);
@@ -727,6 +736,7 @@ export class EditorStore {
       // read a moment ago: leave the check to the next read
     }
     this.project.set(project);
+    this.closedMetadata.set([]);
     this.applyProjectSettings(project);
     if (replaceSources) this.sources.set([]);
     const missing = project.sourceFiles.filter((p) => !this.sources().some((s) => s.path === p));
@@ -754,6 +764,7 @@ export class EditorStore {
     }
     try {
       this.project.set(await host.writeProject(path, this.projectState()));
+      this.closedMetadata.set([]); // saved: the closed files are out of it now
       this.rememberDiskText(path, (await host.readFile(path)).text);
     } catch (e) {
       this.status.set(`Could not save the project: ${(e as Error).message}`);
@@ -767,6 +778,9 @@ export class EditorStore {
   private add(docs: MetadataDocument[]): void {
     if (!docs.length) return;
     this.documents.set([...this.documents(), ...docs]);
+    // A closed file opened again is back in the project.
+    const opened = new Set(docs.map((d) => d.path()?.toLowerCase()));
+    this.closedMetadata.update((closed) => closed.filter((p) => !opened.has(p.toLowerCase())));
     const first = docs[0];
     const model = modelKeys(first.doc())[0];
     this.selection.set(model ? { docId: first.id, kind: 'model', name: model } : { docId: first.id, kind: 'document' });
@@ -782,6 +796,21 @@ export class EditorStore {
     const rest = this.documents().filter((d) => d !== doc);
     this.documents.set(rest);
     if (this.selection()?.docId === id) this.selection.set(rest[0] ? { docId: rest[0].id, kind: 'document' } : undefined);
+    // Closing a file takes it out of the project (once no other map from the same TS or C# file is still open).
+    const path = doc.path();
+    if (path && this.project() && !rest.some((d) => d.path()?.toLowerCase() === path.toLowerCase())) {
+      this.closedMetadata.update((closed) => unique([...closed, path]));
+      this.status.set(`Closed ${fileName(path)}; saving the project takes it out of ${projectLabel(this.project()!.path)}`);
+    }
+  }
+
+  /** Closes the project: its files and sources, after asking about unsaved changes. The editor starts empty next time. */
+  async closeProject(): Promise<void> {
+    const project = this.project();
+    if (!project || !(await this.closeAll())) return;
+    host.projectClosed();
+    this.newFile();
+    this.status.set(`Closed the project ${projectLabel(project.path)}`);
   }
 
   // ---- Saving
@@ -898,6 +927,7 @@ export class EditorStore {
     this.selection.set(undefined);
     this.documents.set([]);
     this.project.set(undefined);
+    this.closedMetadata.set([]);
     this.sources.set([]);
     this.regexTests.set(loadRegexTests());
     this.diskTexts.clear();

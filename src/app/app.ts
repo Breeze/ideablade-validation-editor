@@ -211,7 +211,7 @@ export class App {
         case 'save': return void this.store.save();
         case 'saveAs': return void this.store.saveAs();
         case 'saveAll': return void this.store.saveAll();
-        case 'close': return void this.store.closeDocument();
+        case 'closeProject': return void this.store.closeProject();
         case 'addSource': return void this.store.addSources();
         case 'reloadSources': return void this.store.reloadSources();
         case 'openRecent': return void (arg && this.store.openPath(arg));
