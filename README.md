@@ -6,6 +6,19 @@ A desktop editor for [IdeaBlade Validation](https://github.com/Breeze/ideablade-
 
 ![Editing a model-level rule](docs/screenshots/model-editor.png)
 
+## Installing
+
+Download the installer for your system from the newest release on the **[Releases page](https://github.com/Breeze/ideablade-validation-editor/releases)** (the one at the top; they're alphas for now, marked Pre-release). Each release lists its installers with direct links, and what's new.
+
+| | Download | Installing |
+|---|---|---|
+| **Windows** (x64) | `IdeaBlade-Validation-Editor-Setup-<version>.exe` | Run it. It isn't code-signed, so SmartScreen may warn: *More info* → *Run anyway*. It asks who it's for: everyone (Program Files, with an administrator prompt; the default) or only you. |
+| **macOS**, Apple silicon or Intel | `IdeaBlade-Validation-Editor-<version>-mac-arm64.dmg` or `-mac-x64.dmg` | Open it and drag the app to Applications. It isn't signed with an Apple certificate or notarized, so the first time, right-click the app → *Open* → *Open* (or run `xattr -dr com.apple.quarantine "/Applications/IdeaBlade Validation Editor.app"`). |
+| **Linux** (x64) | `IdeaBlade-Validation-Editor-<version>-linux-x86_64.AppImage` | `chmod +x` it and run it. |
+| **Linux**, Debian or Ubuntu | `IdeaBlade-Validation-Editor-<version>-linux-amd64.deb` | `sudo apt install ./IdeaBlade-Validation-Editor-<version>-linux-amd64.deb` |
+
+To update, install the newer version over the one you have; your settings and recent projects stay. To work on the editor itself, see [Running it](#running-it) below.
+
 ## What it does
 
 - **Several metadata files, side by side, in JSON, TypeScript or C#.** Open as many as the application has: the server's `validation.metadata.json` and a client's own view model metadata, for example. Each is listed on the left with its model types; the checks, code completion and "Try it" see all of them together, merged as the library merges several metadata maps (`addMetadata`, `AddMetadataJson`). So `ResourceName.firstName`'s `from: 'StaffingResource'` in the client's TS file resolves against the server's JSON, a duplicate error key across files is caught, and a model type in two files gets a note that the library merges them.
