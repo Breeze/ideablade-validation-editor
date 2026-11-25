@@ -8,7 +8,7 @@ import { insertCsMetadata, newCsMetadataFile, pascalCaseFromFile, readCsMetadata
 import { type MetadataDoc, lineOfPath, mergeDocs, setIn, stringify } from './doc';
 import { mergeMaps, mergeModel } from './merge';
 import { COMMON_PATTERNS, analyzeRegex, regexTestKey, splitPattern, testSamples } from './regex';
-import { buildCatalog, camelCase, parseBreeze, parseCSharp, parseCSharpApp, parseSource } from './sources';
+import { buildCatalog, camelCase, parseBreeze, parseCSharp, parseCSharpApp, parseSource, valueKind } from './sources';
 import { runTest } from './tester';
 
 const options = { camelCase: true };
@@ -102,6 +102,35 @@ describe('checks', () => {
     const view = { ...doc, ResourceName: { properties: { firstName: { from: 'StaffingResource' }, nickname: { from: 'Nobody' } } } };
     const issues = checkDocument(view, { customValidators: [], catalog });
     expect(issues.filter((i) => i.severity === 'error').map((i) => i.path)).toEqual([['ResourceName', 'properties', 'nickname', 'from']]);
+  });
+
+  it("explains a bare type in 'from' whose type has no property of that name", () => {
+    const view = { ...doc, ResourceName: { properties: { nickname: { from: 'StaffingResource' }, alias: { from: 'StaffingResource.firstName' } } } };
+    const errors = checkDocument(view, { customValidators: [], catalog }).filter((i) => i.severity === 'error');
+    expect(errors.map((i) => i.path)).toEqual([['ResourceName', 'properties', 'nickname', 'from']]);
+    expect(errors[0].message).toContain("'StaffingResource' has no property 'nickname': 'from' with only a type takes that type's property of the same name");
+  });
+
+  it("warns about a 'from' whose property holds another kind of value", () => {
+    const view = setIn(
+      setIn(setIn(doc, ['StaffingResource', 'properties', 'firstName', 'from'], 'Address.primary'), ['StaffingResource', 'properties', 'middleName'], { from: 'Address.city' }),
+      ['StaffingResource', 'properties', 'hireDate'],
+      { from: 'Address.created' },
+    ) as MetadataDoc;
+    const warnings = checkDocument(view, { customValidators: [], catalog }).filter((i) => i.path.at(-1) === 'from');
+    expect(warnings.map((i) => [i.severity, i.path.join('.')])).toEqual([['warning', 'StaffingResource.properties.firstName.from']]);
+    expect(warnings[0].message).toBe(
+      "'StaffingResource.firstName' is text (String), but 'Address.primary' is true/false (Boolean): its rules are most likely meant for something else.",
+    );
+  });
+
+  it('tells the kind of value from Breeze, TypeScript and C# types', () => {
+    expect(['String', 'string', 'string | null', 'Guid', 'string?'].map(valueKind)).toEqual(['text', 'text', 'text', 'text', 'text']);
+    expect(['Int32', 'number', 'int?', 'decimal', 'System.Double'].map(valueKind)).toEqual(['number', 'number', 'number', 'number', 'number']);
+    expect(['Boolean', 'bool', 'boolean | undefined'].map(valueKind)).toEqual(['true/false', 'true/false', 'true/false']);
+    expect(['DateTime', 'Date', 'DateTimeOffset?'].map(valueKind)).toEqual(['date', 'date', 'date']);
+    // Not compared: models, arrays, unions of kinds, enums.
+    expect(['Address', 'string[]', 'string | number', 'Status', undefined].map(valueKind)).toEqual([undefined, undefined, undefined, undefined, undefined]);
   });
 
   it('warns about properties the model sources do not have', () => {

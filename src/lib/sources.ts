@@ -437,6 +437,34 @@ export function buildCatalog(sources: readonly ModelSource[]): Catalog {
   return catalog;
 }
 
+/** What kind of value a property holds, as far as validation goes. */
+export type ValueKind = 'text' | 'number' | 'true/false' | 'date';
+
+/**
+ * The kind of value a property's type stands for, whichever source wrote it: Breeze's data types (`String`, `Int32`,
+ * `Boolean`, `DateTime`, `Guid`), TypeScript (`string`, `number | null`, `Date`) or C# (`string`, `int?`, `bool`,
+ * `DateTimeOffset`, `Guid`). A Guid counts as text: it's a string in TypeScript. Undefined for anything else (a
+ * model, an array, a union of kinds, an enum), which isn't compared.
+ */
+export function valueKind(type: string | undefined): ValueKind | undefined {
+  if (!type) return undefined;
+  const parts = type
+    .split('|')
+    .map((t) => t.trim().replace(/\?$/, '').replace(/^System\./, '').toLowerCase())
+    .filter((t) => t && t !== 'null' && t !== 'undefined');
+  const kinds = new Set(parts.map(kindOf));
+  return kinds.size === 1 ? [...kinds][0] : undefined;
+}
+
+function kindOf(type: string): ValueKind | undefined {
+  if (['string', 'guid', 'char'].includes(type)) return 'text';
+  if (['number', 'int', 'long', 'short', 'byte', 'sbyte', 'uint', 'ulong', 'ushort', 'float', 'double', 'decimal', 'single'].includes(type)) return 'number';
+  if (/^u?int(16|32|64)$/.test(type)) return 'number';
+  if (['boolean', 'bool'].includes(type)) return 'true/false';
+  if (['date', 'datetime', 'datetimeoffset', 'dateonly'].includes(type)) return 'date';
+  return undefined;
+}
+
 export function fileName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
 }

@@ -32,7 +32,12 @@ import {
   mergeDocs,
   modelKeys,
 } from './doc';
-import type { Catalog, SourceValidator } from './sources';
+import { type Catalog, type SourceValidator, type ValueKind, valueKind } from './sources';
+
+/** The kind of value in a sentence: 'text', 'a number', 'true/false', 'a date'. */
+function article(kind: ValueKind): string {
+  return kind === 'number' || kind === 'date' ? `a ${kind}` : kind;
+}
 
 export type Severity = 'error' | 'warning' | 'info';
 
@@ -149,6 +154,15 @@ export function checkDocument(doc: MetadataDoc, options: CheckOptions): Issue[] 
       if (typeof entry['extends'] === 'string') propertiesOf(entry['extends'], seen).forEach((n) => names.add(n));
     }
     return names;
+  };
+
+  /** A property's type as a model source declares it, on the type itself or on what it extends; undefined if none does. */
+  const sourceTypeOf = (modelType: string, name: string, seen = new Set<string>()): string | undefined => {
+    const own = options.catalog.get(modelType)?.properties.find((p) => p.name === name)?.type;
+    if (own !== undefined || seen.has(modelType)) return own;
+    seen.add(modelType);
+    const entry = view[modelType];
+    return isPlainObject(entry) && typeof entry['extends'] === 'string' ? sourceTypeOf(entry['extends'], name, seen) : undefined;
   };
 
   const checkExpr = (expression: Json | undefined, path: Path, what: string) => {
@@ -283,14 +297,33 @@ export function checkDocument(doc: MetadataDoc, options: CheckOptions): Issue[] 
       const from = property['from'];
       if (typeof from === 'string' && from) {
         const [fromType, fromProperty = propertyName] = from.split('.');
-        const fromKnown = propertiesOf(fromType).has(fromProperty);
-        if (!fromKnown) {
+        const typeProperties = propertiesOf(fromType);
+        if (!typeProperties.has(fromProperty)) {
+          // A bare type means its property of the same name: say so, since that's easy to miss when it isn't there.
+          const bareType = !from.includes('.');
           add(
             'error',
             [...path, 'from'],
-            `'${fromType}.${fromProperty}' is neither in this metadata nor in the model sources. The library throws for a 'from' that nobody knows (unless a rule source, such as Breeze's, knows it).`,
+            bareType && typeProperties.size
+              ? `'${fromType}' has no property '${propertyName}': 'from' with only a type takes that type's property of the same name. Name the property to use instead, as '${fromType}.property'.`
+              : `'${fromType}.${fromProperty}' is neither in this metadata nor in the model sources. The library throws for a 'from' that nobody knows (unless a rule source, such as Breeze's, knows it).`,
             'library',
           );
+        } else {
+          // Rules taken from a property of another kind (a string's maxLength or pattern for a boolean) are most likely
+          // a slip: compared where both sources say what the types are.
+          const ownType = sourceTypeOf(modelType, propertyName);
+          const fromTypeName = sourceTypeOf(fromType, fromProperty);
+          const ownKind = valueKind(ownType);
+          const fromKind = valueKind(fromTypeName);
+          if (ownKind && fromKind && ownKind !== fromKind) {
+            add(
+              'warning',
+              [...path, 'from'],
+              `'${modelType}.${propertyName}' is ${article(ownKind)} (${ownType}), but '${fromType}.${fromProperty}' is ${article(fromKind)} (${fromTypeName}): its rules are most likely meant for something else.`,
+              'models',
+            );
+          }
         }
       }
       checkRules(property['validators'], [...path, 'validators'], modelType, propertyName);

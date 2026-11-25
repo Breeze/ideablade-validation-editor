@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, signal } f
 import { type Json, type Path, type PropertyEntry, isPlainObject, renameKey } from '../../../lib/doc';
 import { EditorStore } from '../../services/editor-store';
 import { commentText, commentValue } from '../../shared/ids-and-comments';
-import { Combobox } from '../combobox/combobox';
+import { type ComboOption, Combobox } from '../combobox/combobox';
 import { InlineIssues } from '../inline-issues/inline-issues';
 import { RuleList } from '../rule-list/rule-list';
 
@@ -50,20 +50,27 @@ export class PropertyEditor {
   /** Warnings at or below the property, as for errorCount. */
   readonly warningCount = computed(() => this.store.issuesAt(this.path()).filter((i) => i.severity === 'warning').length);
 
-  /** "Type" where Type has a property of this name, then "Type.property" for every other known property. */
-  readonly fromOptions = computed(() => {
-    const options: string[] = [];
-    const others: string[] = [];
+  /**
+   * The choices for `from`: first "Type" for each type that has a property of this name (the library takes that one),
+   * then "Type.property" for every known property of every other type, the same name included, so that property
+   * shows as being there and can be named explicitly. Each with its type where a source declares it, so a property of
+   * another kind (a boolean for a string) stands out; the checks warn about one that's picked.
+   */
+  readonly fromOptions = computed<ComboOption[]>(() => {
+    const sameName: ComboOption[] = [];
+    const all: ComboOption[] = [];
     const doc = this.store.doc();
     for (const type of this.store.allModelTypes()) {
       if (type === this.modelType()) continue;
-      const names = new Set<string>(this.store.catalog().get(type)?.properties.filter((p) => !p.navigation).map((p) => p.name) ?? []);
+      const sourceProperties = this.store.catalog().get(type)?.properties.filter((p) => !p.navigation) ?? [];
+      const types = new Map(sourceProperties.map((p) => [p.name, p.type]));
+      const names = new Set<string>(types.keys());
       const entry = doc[type];
       if (isPlainObject(entry) && isPlainObject(entry['properties'])) Object.keys(entry['properties']).forEach((n) => names.add(n));
-      if (names.has(this.name())) options.push(type);
-      for (const n of names) if (n !== this.name()) others.push(`${type}.${n}`);
+      if (names.has(this.name())) sameName.push({ value: type, detail: `= ${type}.${this.name()}` });
+      for (const n of names) all.push({ value: `${type}.${n}`, detail: types.get(n) });
     }
-    return [...options, ...others];
+    return [...sameName, ...all];
   });
 
   /** A path below the property, e.g. `at('validators')`. */
