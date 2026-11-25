@@ -86,14 +86,16 @@ describe('the window state', () => {
     assert.deepEqual(getRecentProjects(file), projects.slice(2).reverse()); // p11 … p2
     setLastProject(file, projects[4].split(path.sep).join('/')); // forward slashes: the same file, moves up
     assert.equal(getRecentProjects(file).length, 10);
-    setLastProject(file, projects[5].toUpperCase()); // the same file, written differently: moves up, not added
+    // In another case: the same file where names ignore case (Windows, macOS), another one on Linux.
+    const sameFileOtherCase = process.platform === 'linux' ? projects[5] : projects[5].toUpperCase();
+    setLastProject(file, sameFileOtherCase); // moves up, not added
     assert.equal(getRecentProjects(file).length, 10);
-    assert.equal(getRecentProjects(file)[0], projects[5].toUpperCase());
+    assert.equal(getRecentProjects(file)[0], sameFileOtherCase);
     fs.rmSync(projects[11]);
     assert.ok(!getRecentProjects(file).includes(projects[11]));
     clearRecentProjects(file);
     assert.deepEqual(getRecentProjects(file), []);
-    assert.equal(getLastProject(file), projects[5].toUpperCase()); // still the one to reopen
+    assert.equal(getLastProject(file), sameFileOtherCase); // still the one to reopen
     clearLastProject(file); // File → Close Project
     assert.equal(getLastProject(file), undefined);
     assert.ok('recentProjects' in JSON.parse(fs.readFileSync(file, 'utf8'))); // the rest of the file stays

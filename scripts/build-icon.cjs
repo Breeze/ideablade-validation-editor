@@ -1,4 +1,4 @@
-// Renders build/icon.svg (and build/icon-small.svg for 16-24 px) into build/icon.ico (the window, the exe and the installer) and build/icon.png (512 px),
+// Renders build/icon.svg (and build/icon-small.svg for 16-24 px) into build/icon.ico (the window, the exe and the installer), build/ivproj.ico (.ivproj files) and build/icon.png (512 px),
 // with Electron's own Chromium, so no image library is needed. Run with `npm run icon` after changing the SVG.
 const { app, BrowserWindow } = require('electron');
 const fs = require('node:fs');
@@ -56,7 +56,10 @@ app.whenReady().then(async () => {
   const images = [];
   for (const size of SIZES) images.push({ size, png: Buffer.from(await render(size), 'base64') });
   fs.writeFileSync(path.join(buildDir, 'icon.ico'), ico(images));
+  // The .ivproj file type's icon on Windows: electron-builder's default name for it (an explicit `icon` there would
+  // also be looked up as an .icns on macOS, where there's none).
+  fs.writeFileSync(path.join(buildDir, 'ivproj.ico'), ico(images));
   fs.writeFileSync(path.join(buildDir, 'icon.png'), Buffer.from(await render(512), 'base64'));
-  console.log(`build/icon.ico (${SIZES.join(', ')} px) and build/icon.png (512 px)`);
+  console.log(`build/icon.ico and build/ivproj.ico (${SIZES.join(', ')} px), build/icon.png (512 px)`);
   app.quit();
 });

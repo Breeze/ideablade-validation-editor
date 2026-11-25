@@ -104,8 +104,11 @@ function getLastProject(file) {
   return typeof last === 'string' && fs.existsSync(last) ? last : undefined;
 }
 
-/** A path as compared: resolved (one kind of slash) and in lower case, as Windows file names are. */
-const samePathKey = (p) => path.resolve(p).toLowerCase();
+/**
+ * A path as compared: resolved (one kind of slash), and in lower case where file names ignore case (Windows, and macOS
+ * by default). On Linux, names that differ only in case are different files.
+ */
+const samePathKey = (p) => (process.platform === 'linux' ? path.resolve(p) : path.resolve(p).toLowerCase());
 
 /**
  * The recent projects, the most recent first, each once (however its path was written), without the ones that have

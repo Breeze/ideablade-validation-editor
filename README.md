@@ -136,7 +136,7 @@ npm run dist
 
 This builds a Windows installer with electron-builder: `release/IdeaBlade-Validation-Editor-Setup-<version>.exe`. It's an NSIS installer that asks who the app is for: "Anyone who uses this computer" (the default: `C:\Program Files`, with an administrator prompt) or "Only me" (`%LOCALAPPDATA%\Programs`, no prompt). The folder can be changed. Installing again over an existing installation keeps its choice. `npm run dist:dir` builds only the unpacked app (`release/win-unpacked/`), which is quicker for checking the packaged build. The installer isn't code-signed.
 
-The icon (JSON braces around a check: validation metadata whose rules pass) is drawn in `build/icon.svg`, with a bolder `build/icon-small.svg` for 16–24 px, where the thin lines blur. `npm run icon` renders both with Electron into `build/icon.ico` (16–256 px), used for the window, the exe, the installer and `.ivproj` files, and `build/icon.png` (512 px). Run it after changing either SVG, and commit the results.
+The icon (JSON braces around a check: validation metadata whose rules pass) is drawn in `build/icon.svg`, with a bolder `build/icon-small.svg` for 16–24 px, where the thin lines blur. `npm run icon` renders both with Electron into `build/icon.ico` (16–256 px), used for the window, the exe and the installer, the same as `build/ivproj.ico` for `.ivproj` files on Windows, and `build/icon.png` (512 px). Run it after changing either SVG, and commit the results.
 
 npm 11 lists some packages whose install scripts it didn't run (`esbuild`, `lmdb`, `@parcel/watcher`, `electron-winstaller`, `msgpackr-extract`). The build doesn't need them: esbuild and the watchers come as prebuilt optional packages, and electron-winstaller is only for Squirrel installers.
 

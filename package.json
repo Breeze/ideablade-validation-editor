@@ -118,7 +118,6 @@
         "name": "IdeaBlade Validation Project",
         "description": "IdeaBlade Validation Project",
         "role": "Editor",
-        "icon": "icon.ico",
         "mimeType": "application/x-ideablade-validation-project"
       }
     ]
