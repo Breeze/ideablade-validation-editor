@@ -554,12 +554,14 @@ export class EditorStore {
     this.update(path, keys.length === 1 && keys[0] === 'name' ? changed.name : (changed as Json));
   }
 
-  addModel(name: string): void {
-    const active = this.active();
+  /** Adds a model type to a metadata file (each file has its own Add in the sidebar), and selects it. */
+  addModel(name: string, docId = this.active()?.id): void {
+    const doc = docId ? this.document(docId) : undefined;
     name = name.trim();
-    if (!name || !active) return;
-    if (!active.doc()[name]) this.update([name], { properties: {} });
-    if (active.doc()[name]) this.selection.set({ docId: active.id, kind: 'model', name });
+    if (!name || !doc || doc.readOnly()) return;
+    this.selection.set({ docId: doc.id, kind: 'document' }); // edits go to the selected file: this one
+    if (!doc.doc()[name]) this.update([name], { properties: {} });
+    if (doc.doc()[name]) this.selection.set({ docId: doc.id, kind: 'model', name });
   }
 
   renameModel(from: string, to: string): void {
@@ -804,12 +806,11 @@ export class EditorStore {
     }
   }
 
-  /** Closes the project: its files and sources, after asking about unsaved changes. The editor starts empty next time. */
+  /** Closes the project: its files and sources, after asking about unsaved changes. Nothing is open after it, nor next time. */
   async closeProject(): Promise<void> {
     const project = this.project();
     if (!project || !(await this.closeAll())) return;
     host.projectClosed();
-    this.newFile();
     this.status.set(`Closed the project ${projectLabel(project.path)}`);
   }
 

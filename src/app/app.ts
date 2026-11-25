@@ -64,7 +64,7 @@ interface Counts {
               @if (docCounts().get(d.id); as c) {
                 @if (c.errors) { <span class="badge error-badge">{{ c.errors }}</span> }
               }
-              <button class="icon" title="Close (Ctrl+W)" (click)="$event.stopPropagation(); store.closeDocument(d.id)">✕</button>
+              <button class="icon" title="Close: takes it out of the project, when there is one" (click)="$event.stopPropagation(); store.closeDocument(d.id)">✕</button>
             </div>
             <button class="nav-item sub" [class.selected]="isSelected(d)" (click)="store.select({ docId: d.id, kind: 'document' })">
               <small>{{ d.format() === 'json' ? '$schema, $comment, global rules' : '$comment, global rules' }}</small>
@@ -80,19 +80,19 @@ interface Counts {
                 }
               </button>
             }
+            @if (!d.readOnly()) {
+              <div class="add-row add-model">
+                <input [attr.list]="typesListId + '-' + d.id" placeholder="model type…" [title]="'Add a model type to ' + d.label()"
+                  [value]="newModels()[d.id] ?? ''" (input)="setNewModel(d.id, $any($event.target).value)" (keydown.enter)="addModel(d.id)" />
+                <datalist [id]="typesListId + '-' + d.id">
+                  @for (t of missingTypesOf(d); track t) { <option [value]="t"></option> }
+                </datalist>
+                <button (click)="addModel(d.id)" [disabled]="!(newModels()[d.id] ?? '').trim()">Add</button>
+              </div>
+            }
           </div>
         } @empty {
           <div class="hint">No metadata open. Open JSON files, or TypeScript or C# files that hold metadata, or start a new one.</div>
-        }
-        @if (store.active(); as active) {
-          <div class="add-row">
-            <input [attr.list]="typesListId" [placeholder]="'model type, in ' + active.fileLabel()" [value]="newModel()"
-              [disabled]="!!active.readOnly()" (input)="newModel.set($any($event.target).value)" (keydown.enter)="addModel()" />
-            <datalist [id]="typesListId">
-              @for (t of missingTypes(); track t) { <option [value]="t"></option> }
-            </datalist>
-            <button (click)="addModel()" [disabled]="!newModel().trim()">Add</button>
-          </div>
         }
 
         <div class="nav-title">Sources <span class="count">{{ store.sources().length }}</span></div>
@@ -129,7 +129,7 @@ interface Counts {
       <main class="main">
         @if (!store.active()) {
           <div class="empty-state">
-            <p>Open validation metadata: JSON files, TypeScript files with a <code>ModelValidationMetadataMap</code>, or C# files with the metadata as a JSON string. Open several to edit them side by side; the checks see them together, as the library merges them.</p>
+            <p>Open a project (<code>*.ivproj</code>), or File → Open Recent Project, or validation metadata: JSON files, TypeScript files with a <code>ModelValidationMetadataMap</code>, or C# files with the metadata as a JSON string. Open several to edit them side by side; the checks see them together, as the library merges them.</p>
             <button class="primary" (click)="store.open()">Open…</button> <button (click)="store.newFile()">New</button>
           </div>
         } @else if (selectedModel(); as name) {
@@ -173,7 +173,8 @@ interface Counts {
 export class App {
   readonly store = inject(EditorStore);
   readonly pane = signal<Pane>('json');
-  readonly newModel = signal('');
+  /** What's typed in each metadata file's "model type…" field, by document. */
+  readonly newModels = signal<Record<string, string>>({});
   readonly typesListId = uniqueId('model-types');
   readonly fileName = fileName;
   readonly formatLabels = FORMAT_LABELS;
@@ -184,8 +185,6 @@ export class App {
     const s = this.store.selection();
     return s?.kind === 'model' && s.docId === this.store.active()?.id && this.store.modelTypes().includes(s.name) ? s.name : undefined;
   });
-  /** Model types the sources know that the selected document doesn't have yet. */
-  readonly missingTypes = computed(() => this.store.allModelTypes().filter((t) => !this.store.modelTypes().includes(t)));
   readonly warningCount = computed(() => this.store.allIssues().filter((i) => i.severity === 'warning').length);
   readonly modelCounts = computed(() => this.count((i) => (typeof i.path[0] === 'string' ? `${i.docId}/${i.path[0]}` : undefined)));
   readonly docCounts = computed(() => this.count((i) => i.docId));
@@ -222,7 +221,6 @@ export class App {
     });
     void host.startupArgs().then(async (args) => {
       for (const file of args.files) await this.store.openPath(file);
-      if (!this.store.documents().length) this.store.newFile();
       if (args.sources.length) await this.store.loadSourcePaths(args.sources);
       // Back to the model selected last time, or the first one.
       await this.store.restoreSelection();
@@ -257,9 +255,19 @@ export class App {
     return typeof entry?.extends === 'string' ? entry.extends : undefined;
   }
 
-  addModel(): void {
-    this.store.addModel(this.newModel());
-    this.newModel.set('');
+  /** Model types the sources know that this file doesn't have yet, offered when adding one to it. */
+  missingTypesOf(d: MetadataDocument): string[] {
+    const have = new Set(this.modelsOf(d));
+    return this.store.allModelTypes().filter((t) => !have.has(t));
+  }
+
+  setNewModel(docId: string, value: string): void {
+    this.newModels.update((all) => ({ ...all, [docId]: value }));
+  }
+
+  addModel(docId: string): void {
+    this.store.addModel(this.newModels()[docId] ?? '', docId);
+    this.setNewModel(docId, '');
   }
 
   setCustom(text: string): void {
