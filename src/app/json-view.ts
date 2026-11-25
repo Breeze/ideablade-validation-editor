@@ -110,7 +110,7 @@ function minimalChange(before: string, after: string): ChangeSpec {
             @if (shown() !== 'json') {
               {{ d.fileLabel() }} as saving writes it, with your changes. Read-only here: edit the rules in the forms or as JSON.
             } @else {
-              {{ d.name() }} as JSON, which you can edit. It's saved as {{ d.format() === 'ts' ? 'a TypeScript object' : 'a C# JSON string' }}.
+              {{ d.path() ? d.name() : d.label() }} as JSON, which you can edit. It's saved as {{ d.format() === 'ts' ? 'a TypeScript object' : 'a C# JSON string' }}.
             }
           </span>
         </div>

@@ -72,7 +72,13 @@ export class MetadataDocument {
     () => !!this.invalidText() || (this.format() === 'json' ? this.jsonText() : stringify(this.doc())) !== this.saved(),
   );
   readonly fileLabel = computed(() => (this.path() ? fileName(this.path()!) : 'Untitled'));
-  readonly label = computed(() => (this.format() !== 'json' && this.name() ? `${this.fileLabel()} › ${this.name()}` : this.fileLabel()));
+  /**
+   * A saved TS or C# file shows which of its maps this is ("client.ts › clientMetadata"; a file can hold several). An
+   * unsaved document is just "Untitled": its name comes from the file name Save as gives it, and the badge shows the format.
+   */
+  readonly label = computed(() =>
+    this.path() && this.format() !== 'json' && this.name() ? `${this.fileLabel()} › ${this.name()}` : this.fileLabel(),
+  );
 
   constructor(init: { path?: string; format?: DocFormat; name?: string; doc: MetadataDoc; text?: string; readOnly?: string; hasComments?: boolean }) {
     this.path.set(init.path);
