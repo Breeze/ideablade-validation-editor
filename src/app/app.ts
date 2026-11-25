@@ -15,6 +15,13 @@ interface Counts {
   errors: number;
   warnings: number;
 }
+/** The set with `key` added, or taken out if it was in it. */
+function toggled(set: ReadonlySet<string>, key: string): ReadonlySet<string> {
+  const next = new Set(set);
+  if (!next.delete(key)) next.add(key);
+  return next;
+}
+
 /** A metadata file in the sidebar: its maps (one for JSON; one or more for TS and C#), or an unsaved document. */
 interface FileGroup {
   key: string;
@@ -86,7 +93,13 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
           <div class="hint">A project file (*.ivproj) shares the metadata files, sources and settings with your team. The editor finds it next to a metadata file or in a folder above.</div>
         }
 
-        <div class="nav-title">Metadata <span class="count">{{ store.documents().length }}</span></div>
+        <div class="nav-title">Metadata <span class="count">{{ store.documents().length }}</span>
+          @if (store.documents().length) {
+            <span class="spacer"></span>
+            <button class="link fold-all" title="Fold every file down to its name" (click)="collapseAll()">Collapse all</button>
+            <button class="link fold-all" title="Unfold every file and map" (click)="expandAll()">Expand all</button>
+          }
+        </div>
         @if (store.documents().length) {
           <div class="sidebar-search">
             <input #search type="search" placeholder="Find model types and maps…" title="Ctrl+Shift+F. Enter opens the first match, Esc clears it."
@@ -100,6 +113,7 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
           <div class="doc" [class.active]="g.docs.includes(store.active()!)" [class.drop-target]="dropOn() === g.key"
             (dragover)="overFile($event, g)" (dragleave)="leave($event, g.key)" (drop)="dropOnFile($event, g)">
             <div class="doc-head" [title]="g.docs[0].path() ?? 'Not saved yet'" (click)="store.select({ docId: g.docs[0].id, kind: 'document' })">
+              <button class="icon twisty" [title]="fileFolded(g) ? 'Unfold' : 'Fold'" [attr.aria-expanded]="!fileFolded(g)" (click)="$event.stopPropagation(); toggleFile(g)">{{ fileFolded(g) ? '▸' : '▾' }}</button>
               <span class="badge kind">{{ formatLabels[g.docs[0].format()] }}</span>
               <span class="doc-name">@for (p of parts(g.docs[0].fileLabel()); track $index) {@if (p.match) {<mark>{{ p.text }}</mark>} @else {{{ p.text }}}}</span>
               @if (groupDirty(g)) { <span class="dirty" title="Unsaved changes">●</span> }
@@ -108,6 +122,7 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
               @if (groupErrors(g); as errors) { <span class="badge error-badge">{{ errors }}</span> }
               <button class="icon" title="Close: takes it out of the project, when there is one" (click)="$event.stopPropagation(); closeFile(g)">✕</button>
             </div>
+            @if (!fileFolded(g)) {
             @for (d of g.docs; track d.id) {
             @if (showDoc(g, d)) {
             <div class="map-block" [class.drop-target]="dropOn() === d.id" (dragover)="overMap($event, d)" (dragleave)="leave($event, d.id)" (drop)="dropOnMap($event, d)">
@@ -115,6 +130,7 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
               <div class="map-head" [class.selected]="isSelected(d)" (click)="store.select({ docId: d.id, kind: 'document' })"
                 [title]="'The map ' + d.name() + ' in ' + d.fileLabel() + (d.readOnly() ? '' : '. Drag it onto another file to move it there')"
                 [attr.draggable]="!d.readOnly()" (dragstart)="dragMap($event, d)" (dragend)="dragEnd()">
+                <button class="icon twisty" [title]="mapFolded(d) ? 'Unfold' : 'Fold'" [attr.aria-expanded]="!mapFolded(d)" (click)="$event.stopPropagation(); toggleMap(d)">{{ mapFolded(d) ? '▸' : '▾' }}</button>
                 <span class="map-name">@for (p of parts(d.name() ?? ''); track $index) {@if (p.match) {<mark>{{ p.text }}</mark>} @else {{{ p.text }}}}</span>
                 @if (d.newInFile()) { <span class="badge muted" title="Saving writes it into the file">new</span> }
                 @else if (d.dirty()) { <span class="dirty" title="Unsaved changes">●</span> }
@@ -130,6 +146,7 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
                 }
               </div>
             }
+            @if (!mapFolded(d)) {
             @if (wholeDoc(g, d)) {
             <button class="nav-item sub" [class.selected]="isSelected(d)" (click)="store.select({ docId: d.id, kind: 'document' })">
               <small>{{ d.format() === 'json' ? '$schema, $comment, global rules' : '$comment, global rules' }}</small>
@@ -158,6 +175,7 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
                 <button (click)="addModel(d.id)" [disabled]="!(newModels()[d.id] ?? '').trim()">Add</button>
               </div>
             }
+            }
             </div>
             }
             }
@@ -168,6 +186,7 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
                   (input)="setNewMap(g.key, $any($event.target).value)" (keydown.enter)="addMap(g)" />
                 <button (click)="addMap(g)" [disabled]="!(newMaps()[g.key] ?? '').trim()">Add map</button>
               </div>
+            }
             }
           </div>
           }
@@ -444,6 +463,39 @@ export class App {
 
   async addMap(g: FileGroup): Promise<void> {
     if (await this.store.addMap(g.docs[g.docs.length - 1], this.newMaps()[g.key] ?? '')) this.setNewMap(g.key, '');
+  }
+
+  // ---- Folding files and maps in the sidebar
+
+  /** Folded files (by file) and maps (by document): only their name line shows. A search shows its matches anyway. */
+  private readonly foldedFiles = signal<ReadonlySet<string>>(new Set());
+  private readonly foldedMaps = signal<ReadonlySet<string>>(new Set());
+
+  fileFolded(g: FileGroup): boolean {
+    return !this.filtering() && this.foldedFiles().has(g.key);
+  }
+
+  mapFolded(d: MetadataDocument): boolean {
+    return !this.filtering() && this.foldedMaps().has(d.id);
+  }
+
+  toggleFile(g: FileGroup): void {
+    this.foldedFiles.update((set) => toggled(set, g.key));
+  }
+
+  toggleMap(d: MetadataDocument): void {
+    this.foldedMaps.update((set) => toggled(set, d.id));
+  }
+
+  /** Every file folded down to its name. */
+  collapseAll(): void {
+    this.foldedFiles.set(new Set(this.fileGroups().map((g) => g.key)));
+  }
+
+  /** Every file and map unfolded. */
+  expandAll(): void {
+    this.foldedFiles.set(new Set());
+    this.foldedMaps.set(new Set());
   }
 
   // ---- Finding model types and maps: the sidebar's search field
