@@ -1,0 +1,1 @@
+:host { display: flex; gap: 8px; padding: 3px 10px; font-size: 13px; color: var(--muted); background: var(--panel); border-top: 1px solid var(--border); }

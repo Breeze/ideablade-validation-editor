@@ -1,223 +1,75 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
 
-import { COMMON_SETTINGS, OPERATORS, type SettingInfo } from '../lib/catalog';
-import { REGEX_FLAGS } from '../lib/check';
-import { regexTestKey } from '../lib/regex';
-import type { ExpressionSite } from '../lib/completion';
-import {
-  type GroupEntry,
-  type Json,
-  type JsonObject,
-  type Path,
-  type RuleEntry,
-  type ValidatorObject,
-  isGroup,
-  isPlainObject,
-  moveItem,
-} from '../lib/doc';
-import { EditorStore } from './editor-store';
-import { ExpressionInput } from './expression-input';
-import { RegexEditor } from './regex-editor';
-import { InlineIssues, commentText, commentValue, uniqueId } from './inline-issues';
+import { COMMON_SETTINGS, OPERATORS, type SettingInfo } from '../../../lib/catalog';
+import { REGEX_FLAGS } from '../../../lib/check';
+import type { ExpressionSite } from '../../../lib/completion';
+import { type Json, type JsonObject, type Path, type ValidatorObject, isPlainObject } from '../../../lib/doc';
+import { regexTestKey } from '../../../lib/regex';
+import { EditorStore } from '../../services/editor-store';
+import { commentText, commentValue, uniqueId } from '../../shared/ids-and-comments';
+import { ExpressionInput } from '../expression-input/expression-input';
+import { InlineIssues } from '../inline-issues/inline-issues';
+import { RegexEditor } from '../regex-editor/regex-editor';
+import { withKey } from './with-key';
 
-/** Context settings that need something in them to be useful, so a new rule starts with them. */
-function newRule(name: string): RuleEntry {
-  switch (name) {
-    case 'expression':
-      return { name, context: { expression: '', messageTemplate: '' } };
-    case 'pattern':
-      return { name, context: { expression: '' } };
-    case 'minLength':
-    case 'maxLength':
-      return { name, context: { [name]: 1 } };
-    case 'range':
-    case 'numericRange':
-    case 'dateRange':
-      return { name, context: { minValue: 0 } };
-    case 'compare':
-      return { name, context: { other: '', op: '==' } };
-    case 'validValues':
-    case 'invalidValues':
-      return { name, context: { values: [] } };
-    default:
-      return name;
-  }
-}
-
-/** One validator: a bare name or an object with id, condition, context settings and so on. */
+/**
+ * One rule in a rule list: a validator, written either as a bare name (`"required"`) or as an object with `name`,
+ * `id`, `async`, `condition`, `propertyNames` (model-level rules), `context` settings and `$comment`. Closed, it's a
+ * one-line summary; open, it edits all of that, with a field for each context setting the validator takes (the
+ * catalog says which and of what kind: number, operator, expression, regular expression...). Edits go through the
+ * store's `updateValidator`, which writes the rule as an object when it needs one and as a bare name again when only
+ * the name is left. Moving and removing are left to the rule list, through the outputs.
+ */
 @Component({
   selector: 'app-rule-editor',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [InlineIssues, ExpressionInput, RegexEditor],
+  // The host classes colour the card's left border: accent while open, red while the rule has errors.
   host: { class: 'rule', '[class.open]': 'open()', '[class.has-error]': 'hasError()' },
-  template: `
-    <div class="rule-head" (click)="open.set(!open())">
-      <span class="twisty">{{ open() ? '▾' : '▸' }}</span>
-      <span class="rule-name" [class.unknown]="!known()">{{ rule().name || '(no name)' }}</span>
-      @if (rule().id) { <span class="badge">id {{ rule().id }}</span> }
-      @if (rule().async) { <span class="badge">async</span> }
-      @if (rule().condition) { <span class="badge cond" [title]="rule().condition!">if …</span> }
-      <span class="summary">{{ summary() }}</span>
-      <span class="spacer"></span>
-      <button class="icon" title="Move up" (click)="$event.stopPropagation(); moved.emit(-1)" [disabled]="first()">↑</button>
-      <button class="icon" title="Move down" (click)="$event.stopPropagation(); moved.emit(1)" [disabled]="last()">↓</button>
-      <button class="icon danger" title="Remove rule" (click)="$event.stopPropagation(); removed.emit()">✕</button>
-    </div>
-    @if (!open()) {
-      <app-inline-issues [path]="path()" />
-    } @else {
-      <div class="rule-body">
-        <label>Validator
-          <input [attr.list]="listId" [value]="rule().name" (input)="set('name', $any($event.target).value)" />
-          <datalist [id]="listId">
-            @for (name of validatorNames(); track name) { <option [value]="name"></option> }
-          </datalist>
-          @if (info(); as info) {
-            <small>{{ info.description }}@if (info.defaultMessage) { Default message: <code>{{ info.defaultMessage }}</code>}</small>
-          }
-        </label>
-        <app-inline-issues [path]="namePath()" [exact]="true" />
-        <div class="row">
-          <label>Id <input [value]="rule().id ?? ''" placeholder="e.g. END_AFTER_START" (input)="set('id', $any($event.target).value || undefined)" /></label>
-          <label class="check"><input type="checkbox" [checked]="!!rule().async" (change)="set('async', $any($event.target).checked || undefined)" /> async</label>
-        </div>
-        <div class="key-preview">Error key: <code>{{ errorKey() }}</code>@if (!propertyName() && !rule().id) { <small> (give model-level rules an id so their keys differ)</small> }</div>
-        <div class="field">
-          <span class="field-label">Condition <small>(the rule runs only when this is truthy)</small></span>
-          <app-expression-input [value]="rule().condition ?? ''" [site]="conditionSite()" placeholder="e.g. model.country === 'US'"
-            (changed)="set('condition', $event || undefined)" />
-        </div>
-        <app-inline-issues [path]="at('condition')" />
-
-        @if (!propertyName() && modelType()) {
-          <div class="field">
-            <span class="field-label">Property names <small>(the properties this rule's errors are about)</small></span>
-            <div class="chips">
-              @for (p of knownProperties(); track p) {
-                <label class="chip" [class.on]="propertyNames().includes(p)">
-                  <input type="checkbox" [checked]="propertyNames().includes(p)" (change)="toggleProperty(p)" /> {{ p }}
-                </label>
-              }
-              @for (p of unknownPropertyNames(); track p) {
-                <label class="chip on unknown" title="Not a known property">
-                  <input type="checkbox" checked (change)="toggleProperty(p)" /> {{ p }}
-                </label>
-              }
-            </div>
-            <app-inline-issues [path]="at('propertyNames')" />
-          </div>
-        }
-
-        <fieldset>
-          <legend>Context</legend>
-          @for (s of settings(); track s.key) {
-            @if (s.kind === 'regex') {
-              <!-- Not in a <label>: the panel has its own fields, and a label would send clicks to the first of them. -->
-              <div class="field">
-                <span class="field-label">{{ s.label ?? s.key }} <small>(the value passes when this matches; hover a part to see what it does)</small></span>
-                <app-regex-editor [value]="$any(context()[s.key] ?? '')" [flags]="flags()" [testKey]="regexTestKey()" (changed)="setContext(s.key, $event || undefined)" />
-              </div>
-            } @else {
-            <label [class.check]="s.kind === 'boolean'">
-              @switch (s.kind) {
-                @case ('boolean') {
-                  <input type="checkbox" [checked]="!!context()[s.key]" (change)="setContext(s.key, $any($event.target).checked || undefined)" /> {{ s.label ?? s.key }}
-                }
-                @case ('integer') {
-                  {{ s.label ?? s.key }}
-                  <input type="number" min="0" step="1" [value]="context()[s.key] ?? ''" (change)="setNumber(s.key, $any($event.target).value)" />
-                }
-                @case ('bound') {
-                  {{ s.label ?? s.key }}
-                  <input [value]="context()[s.key] ?? ''" [placeholder]="s.help ?? ''" (change)="setBound(s.key, $any($event.target).value)" />
-                }
-                @case ('op') {
-                  {{ s.label ?? s.key }}
-                  <select (change)="setContext(s.key, $any($event.target).value || undefined)">
-                    <option value="" [selected]="!context()[s.key]">(choose)</option>
-                    @for (op of operators; track op) { <option [value]="op" [selected]="context()[s.key] === op">{{ op }}</option> }
-                  </select>
-                }
-                @case ('property') {
-                  {{ s.label ?? s.key }}
-                  <input [attr.list]="propertyListId" [value]="context()[s.key] ?? ''" (input)="setContext(s.key, $any($event.target).value || undefined)" />
-                }
-                @case ('values') {
-                  {{ s.label ?? s.key }} <small>(one per line)</small>
-                  <textarea rows="3" [value]="valuesText(s.key)" (change)="setValues(s.key, $any($event.target).value)"></textarea>
-                }
-                @case ('expression') {
-                  {{ s.label ?? s.key }} <small>(the value is valid when this is truthy)</small>
-                  <app-expression-input [value]="$any(context()[s.key] ?? '')" [site]="expressionSite()" placeholder="e.g. model.endDate == null || model.endDate > model.startDate"
-                    (changed)="setContext(s.key, $event)" />
-                }
-                @case ('flags') {
-                  {{ s.label ?? s.key }}
-                  <span class="chips">
-                    @for (f of regexFlags; track f.flag) {
-                      <span class="chip" role="checkbox" tabindex="0" [attr.aria-checked]="hasFlag(f.flag)" [class.on]="hasFlag(f.flag)" [title]="f.help"
-                        (click)="$event.preventDefault(); toggleFlag(f.flag)" (keydown.space)="$event.preventDefault(); toggleFlag(f.flag)">
-                        <code>{{ f.flag }}</code> {{ f.label }}
-                      </span>
-                    }
-                    @for (f of otherFlags(); track f) {
-                      <span class="chip on unknown" title="Not offered: see the warning" (click)="$event.preventDefault(); toggleFlag(f)"><code>{{ f }}</code> ✕</span>
-                    }
-                  </span>
-                  @if (patternHasOwnFlags()) { <small>The pattern is written as /pattern/flags; its own flags apply.</small> }
-                }
-                @default {
-                  {{ s.label ?? s.key }}
-                  <input [value]="context()[s.key] ?? ''" [placeholder]="s.help ?? ''" (input)="setContext(s.key, $any($event.target).value || undefined)" />
-                }
-              }
-            </label>
-            }
-            <app-inline-issues [path]="at('context', s.key)" />
-          }
-          <label>Other settings <small>(JSON object, for custom validators)</small>
-            <textarea class="code" rows="1" [value]="otherText()" placeholder="{ }" (change)="setOther($any($event.target).value)"></textarea>
-          </label>
-          @if (otherError()) { <div class="inline-issue error">{{ otherError() }}</div> }
-          <app-inline-issues [path]="at('context')" [exact]="true" />
-        </fieldset>
-        <datalist [id]="propertyListId">
-          @for (p of knownProperties(); track p) { <option [value]="p"></option> }
-        </datalist>
-        <label>$comment
-          <textarea class="comment" rows="1" [value]="comment()" placeholder="why this rule exists (one paragraph per line)" (change)="set('$comment', commentValue($any($event.target).value))"></textarea>
-        </label>
-        <app-inline-issues [path]="path()" [exact]="true" />
-      </div>
-    }
-  `,
+  templateUrl: './rule-editor.html',
+  styleUrl: './rule-editor.css',
 })
 export class RuleEditor {
   private readonly store = inject(EditorStore);
+  /** Where the rule is in the document: an index in a `validators` array. */
   readonly path = input.required<Path>();
+  /** The model type the rule belongs to; undefined for global rules. */
   readonly modelType = input<string>();
+  /** Set for a property's rules; undefined for model-level and global rules. */
   readonly propertyName = input<string>();
+  /** First in its list: Move up is disabled. */
   readonly first = input(false);
+  /** Last in its list: Move down is disabled. */
   readonly last = input(false);
+  /** Move up (-1) or down (1) was clicked; the rule list moves it. */
   readonly moved = output<number>();
+  /** Remove was clicked; the rule list removes it. */
   readonly removed = output<void>();
 
+  /** Whether the card is unfolded. */
   readonly open = signal(false);
   readonly listId = uniqueId('validator-names');
   readonly propertyListId = uniqueId('properties');
   readonly operators = OPERATORS;
   readonly commentValue = commentValue;
+  /** Why the "Other settings" text wasn't applied (it isn't a JSON object), until it's fixed. */
   readonly otherError = signal<string | undefined>(undefined);
 
+  /** The rule as it is in the document: a name, or an object. */
   readonly raw = computed(() => this.store.get(this.path()) as string | ValidatorObject | undefined);
+  /** The rule as an object, whichever way it's written, so the template has one shape to show. */
   readonly rule = computed<ValidatorObject>(() => {
     const raw = this.raw();
     return typeof raw === 'string' ? { name: raw } : isPlainObject(raw) ? (raw as ValidatorObject) : { name: '' };
   });
+  /** Where issues about the name are: the rule itself when it's a bare name, else its `name`. */
   readonly namePath = computed(() => (typeof this.raw() === 'string' ? this.path() : this.at('name')));
+  /** What the catalog knows about the validator: description, default message, settings. */
   readonly info = computed(() => this.store.validatorInfo(this.rule().name));
   readonly validatorNames = this.store.validatorNames;
+  /** Whether the editor knows the validator; an unknown name is shown in red. */
   readonly known = computed(() => this.validatorNames().includes(this.rule().name));
+  /** The rule's `context` settings, or none. */
   readonly context = computed<JsonObject>(() => (isPlainObject(this.rule().context) ? this.rule().context! : {}));
   readonly regexFlags = REGEX_FLAGS;
 
@@ -228,25 +80,32 @@ export class RuleEditor {
     propertyName: this.propertyName(),
     contextKeys: Object.keys(this.context()),
   }));
+  /** The same for an `expression` validator's expression, which also sees the value. */
   readonly expressionSite = computed<ExpressionSite>(() => ({ ...this.conditionSite(), kind: 'expression' }));
 
   /** Where this rule's values to try are kept, in the project file: see regexTestKey(). */
   readonly regexTestKey = computed(() => regexTestKey(this.modelType(), this.propertyName(), this.group(), this.rule().id));
 
+  /** The `flags` setting of a pattern rule, as a string of flag letters. */
   readonly flags = computed(() => (typeof this.context()['flags'] === 'string' ? (this.context()['flags'] as string) : ''));
+  /** Flags in the setting that the editor doesn't offer: shown as chips that can only be removed. */
   readonly otherFlags = computed(() => [...new Set(this.flags().split(''))].filter((f) => !REGEX_FLAGS.some((r) => r.flag === f)));
+  /** A pattern written as /source/flags brings its own flags, which win over the `flags` setting. */
   readonly patternHasOwnFlags = computed(() => typeof this.context()['expression'] === 'string' && /^\/.*\/[a-z]*$/s.test(this.context()['expression'] as string));
 
   hasFlag(flag: string): boolean {
     return this.flags().includes(flag);
   }
 
+  /** Adds or removes a flag letter; no flags left removes the setting. */
   toggleFlag(flag: string): void {
     const current = this.flags();
     const next = current.includes(flag) ? current.split(flag).join('') : current + flag;
     this.setContext('flags', next || undefined);
   }
+  /** The context settings to show a field for: the validator's own, then those every validator takes. */
   readonly settings = computed<SettingInfo[]>(() => [...(this.info()?.settings ?? []), ...COMMON_SETTINGS]);
+  /** Errors at or below the rule: the card's left border turns red, so it shows even while closed. */
   readonly hasError = computed(() => this.store.issuesAt(this.path()).some((i) => i.severity === 'error'));
   readonly comment = computed(() => commentText(this.rule().$comment));
 
@@ -270,6 +129,7 @@ export class RuleEditor {
     return key;
   });
 
+  /** The model's properties (from the model sources and the document), for propertyNames and property settings. */
   readonly knownProperties = computed(() => {
     const type = this.modelType();
     if (!type) return [];
@@ -278,15 +138,19 @@ export class RuleEditor {
     if (isPlainObject(entry) && isPlainObject(entry['properties'])) Object.keys(entry['properties']).forEach((n) => names.add(n));
     return [...names].sort();
   });
+  /** A model-level rule's `propertyNames`: the properties its errors are about. */
   readonly propertyNames = computed(() => (Array.isArray(this.rule().propertyNames) ? this.rule().propertyNames! : []));
+  /** Names in `propertyNames` that aren't known properties: shown separately, marked, so they can be removed. */
   readonly unknownPropertyNames = computed(() => this.propertyNames().filter((p) => !this.knownProperties().includes(p)));
 
+  /** The context settings that have no field of their own (a custom validator's), as JSON. */
   readonly otherText = computed(() => {
     const known = new Set(this.settings().map((s) => s.key));
     const other = Object.fromEntries(Object.entries(this.context()).filter(([k]) => !known.has(k)));
     return Object.keys(other).length ? JSON.stringify(other) : '';
   });
 
+  /** The context settings in one line for the closed card (without the message, which would crowd out the rest). */
   summary(): string {
     return Object.entries(this.context())
       .filter(([k]) => k !== 'messageTemplate')
@@ -294,10 +158,12 @@ export class RuleEditor {
       .join(', ');
   }
 
+  /** A path below the rule, e.g. `at('context', 'minValue')`. */
   at(...keys: (string | number)[]): Path {
     return [...this.path(), ...keys];
   }
 
+  /** Sets one of the rule's keys (name, id, async, condition...); undefined removes it. */
   set(key: string, value: Json | undefined): void {
     const testKey = this.regexTestKey();
     this.store.updateValidator(this.path(), (v) => withKey(v, key, value) as ValidatorObject);
@@ -308,10 +174,12 @@ export class RuleEditor {
     }
   }
 
+  /** Sets one context setting; undefined removes it. */
   setContext(key: string, value: Json | undefined): void {
     this.store.updateValidator(this.path(), (v) => withKey(v, 'context', withKey(isPlainObject(v.context) ? v.context : {}, key, value)) as ValidatorObject);
   }
 
+  /** For the number inputs: an empty field removes the setting rather than storing 0. */
   setNumber(key: string, text: string): void {
     this.setContext(key, text.trim() === '' ? undefined : Number(text));
   }
@@ -322,11 +190,13 @@ export class RuleEditor {
     this.setContext(key, t === '' ? undefined : /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : t);
   }
 
+  /** A list setting (validValues...) as text, one value per line. */
   valuesText(key: string): string {
     const values = this.context()[key];
     return Array.isArray(values) ? values.map((v) => (typeof v === 'string' ? v : JSON.stringify(v))).join('\n') : '';
   }
 
+  /** Sets a list setting from text, one value per line: numbers, true, false and null become JSON values, the rest strings. */
   setValues(key: string, text: string): void {
     const values = text
       .split('\n')
@@ -336,6 +206,10 @@ export class RuleEditor {
     this.setContext(key, values);
   }
 
+  /**
+   * Replaces the settings that have no field of their own with those in the JSON text, keeping the others. Text that
+   * isn't a JSON object isn't applied; otherError says why.
+   */
   setOther(text: string): void {
     let other: JsonObject = {};
     if (text.trim()) {
@@ -354,119 +228,10 @@ export class RuleEditor {
     this.store.updateValidator(this.path(), (v) => ({ ...v, context: { ...kept, ...other } }));
   }
 
+  /** Adds a property to `propertyNames` or removes it; none left removes the key. */
   toggleProperty(name: string): void {
     const list = this.propertyNames();
     const next = list.includes(name) ? list.filter((p) => p !== name) : [...list, name];
     this.set('propertyNames', next.length ? next : undefined);
   }
 }
-
-/**
- * A list of rules: a model's or the global `validators`, a property's, or a group's. Groups contain a rule list of
- * their own (but no further groups).
- */
-@Component({
-  selector: 'app-rule-list',
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [InlineIssues, RuleEditor],
-  template: `
-    <div class="rule-list">
-      @for (rule of rules(); track $index; let i = $index) {
-        @if (isGroup(rule)) {
-          <div class="group">
-            <div class="group-head">
-              <span class="badge group-badge">group</span>
-              <input class="group-name" [value]="rule.group" placeholder="group name" (input)="setGroupName(i, $any($event.target).value)" />
-              <span class="spacer"></span>
-              <button class="icon" title="Move up" (click)="move(i, -1)" [disabled]="i === 0">↑</button>
-              <button class="icon" title="Move down" (click)="move(i, 1)" [disabled]="i === rules().length - 1">↓</button>
-              <button class="icon danger" title="Remove group" (click)="remove(i)">✕</button>
-            </div>
-            <textarea class="comment" rows="1" placeholder="$comment" [value]="comment(rule)" (change)="setGroupComment(i, $any($event.target).value)"></textarea>
-            <app-inline-issues [path]="at(i, 'group')" />
-            <app-rule-list [path]="at(i, 'validators')" [modelType]="modelType()" [propertyName]="propertyName()" [inGroup]="true" />
-          </div>
-        } @else {
-          <app-rule-editor [path]="at(i)" [modelType]="modelType()" [propertyName]="propertyName()"
-            [first]="i === 0" [last]="i === rules().length - 1" (moved)="move(i, $event)" (removed)="remove(i)" />
-        }
-      } @empty {
-        <div class="empty">No rules.</div>
-      }
-      <div class="add-row">
-        <input [attr.list]="listId" placeholder="validator…" [value]="newName()" (input)="newName.set($any($event.target).value)" (keydown.enter)="add()" />
-        <datalist [id]="listId">
-          @for (name of validatorNames(); track name) {
-            <option [value]="name"></option>
-          }
-        </datalist>
-        <button (click)="add()" [disabled]="!newName().trim()">Add rule</button>
-        @if (!inGroup()) {
-          <button (click)="addGroup()">Add group</button>
-        }
-      </div>
-    </div>
-  `,
-})
-export class RuleList {
-  private readonly store = inject(EditorStore);
-  readonly path = input.required<Path>();
-  readonly modelType = input<string>();
-  /** Set for a property's rules; undefined for model-level and global rules. */
-  readonly propertyName = input<string>();
-  readonly inGroup = input(false);
-
-  readonly listId = uniqueId('validators');
-  readonly newName = signal('');
-  readonly rules = computed(() => {
-    const value = this.store.get(this.path());
-    return (Array.isArray(value) ? value : []) as RuleEntry[];
-  });
-  readonly validatorNames = this.store.validatorNames;
-  readonly isGroup = isGroup;
-  readonly comment = (rule: GroupEntry) => commentText(rule.$comment);
-
-  at(...keys: (string | number)[]): Path {
-    return [...this.path(), ...keys];
-  }
-
-  add(): void {
-    const name = this.newName().trim();
-    if (!name) return;
-    this.store.update(this.path(), [...this.rules(), newRule(name)] as Json);
-    this.newName.set('');
-  }
-
-  addGroup(): void {
-    this.store.update(this.path(), [...this.rules(), { group: 'submit', validators: [] }] as Json);
-  }
-
-  move(index: number, delta: number): void {
-    this.store.update(this.path(), moveItem(this.rules(), index, index + delta) as Json);
-  }
-
-  remove(index: number): void {
-    this.store.update(this.at(index), undefined);
-  }
-
-  setGroupName(index: number, name: string): void {
-    const old = (this.rules()[index] as GroupEntry).group;
-    this.store.update(this.at(index, 'group'), name);
-    // The group is part of its rules' test values' keys: keep them with the rules.
-    const from = regexTestKey(this.modelType(), this.propertyName(), old, undefined).replace(/#$/, '');
-    const to = regexTestKey(this.modelType(), this.propertyName(), name, undefined).replace(/#$/, '');
-    this.store.moveRegexTests((k) => (k === from || k.startsWith(from + '#') ? to + k.slice(from.length) : undefined));
-  }
-
-  setGroupComment(index: number, text: string): void {
-    this.store.update(this.at(index, '$comment'), commentValue(text));
-  }
-}
-
-function withKey<T extends object>(object: T, key: string, value: Json | undefined): T {
-  const copy = { ...object } as Record<string, unknown>;
-  if (value === undefined) delete copy[key];
-  else copy[key] = value;
-  return copy as T;
-}
-

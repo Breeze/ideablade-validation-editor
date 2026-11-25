@@ -1,8 +1,8 @@
-// Tests for typescript-metadata.cjs (node --test): they need the real TypeScript compiler, which the Angular test
-// build doesn't bundle.
-const assert = require('node:assert/strict');
-const { describe, it } = require('node:test');
-const { readTsMetadata, writeTsMetadata, insertTsMetadata, removeTsMetadata, newTsMetadataFile } = require('./typescript-metadata.cjs');
+// Tests for typescript-metadata.ts (node --test, compiled to dist-electron/typescript-metadata.test.js; see
+// scripts/test-main.mjs): they need the real TypeScript compiler, which the Angular test build doesn't bundle.
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { readTsMetadata, writeTsMetadata, insertTsMetadata, removeTsMetadata, newTsMetadataFile } from './typescript-metadata';
 
 // As TempHire's client-validation-metadata.ts, with Windows line endings.
 const file = [
@@ -53,7 +53,7 @@ describe('metadata in TypeScript', () => {
 
   it('marks maps with code in them read-only, and notices comments', () => {
     const [spread] = readTsMetadata("const base = {}; export const m = { ...base } satisfies ModelValidationMetadataMap;", 'x.ts');
-    assert.match(spread.readOnly, /A spread at line 1/);
+    assert.match(spread.readOnly ?? '', /A spread at line 1/);
     const [commented] = readTsMetadata('export const m: ModelValidationMetadataMap = {\n  // why\n  A: {},\n};', 'x.ts');
     assert.equal(commented.hasComments, true);
   });

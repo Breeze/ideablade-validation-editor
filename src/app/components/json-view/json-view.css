@@ -1,0 +1,13 @@
+/* The view fills the side pane; the editor (CodeMirror, whose own look is in json-view-codemirror.ts) takes the
+   height that the switch and the notes leave. */
+:host { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.json-host { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.json-host[hidden] { display: none; }
+.json-error { padding: 6px 10px; background: var(--error-soft); color: var(--error); font-size: 13px; }
+
+/* TS / C# file or JSON */
+.view-switch { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.view-switch button { font-size: 13px; padding: 1px 10px; }
+.view-switch button.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+.view-note { flex-basis: 100%; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.json-note { padding: 6px 10px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }

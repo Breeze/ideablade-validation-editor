@@ -1,0 +1,8 @@
+/* display: contents: the heading and the search lay out as children of the sidebar's top section. */
+:host { display: contents; }
+/* Collapse all / Expand all: small links in the heading, not shouting in its capitals. */
+.nav-title .fold-all { font-size: 11px; text-transform: none; letter-spacing: 0; padding: 0 2px; color: var(--muted); text-decoration: none; }
+.nav-title .fold-all:hover { color: var(--accent); text-decoration: underline; }
+.sidebar-search { display: flex; align-items: center; gap: 6px; margin: 2px 0 6px; }
+.sidebar-search input { font-size: 13px; padding: 3px 6px; }
+.search-count { font-size: 12px; color: var(--muted); white-space: nowrap; }

@@ -1,0 +1,10 @@
+/* The card: muted while closed, a stronger border and background while open. */
+:host { display: block; border: 1px solid var(--border); border-radius: 5px; margin: 6px 0; background: var(--card); }
+:host(.open) { border-color: var(--border-strong); background: var(--card-open); }
+.property-head { display: flex; gap: 6px; align-items: center; padding: 4px 8px; cursor: pointer; flex-wrap: wrap; }
+.property-name { font-weight: 600; }
+/* The property's type, from the model sources */
+.type { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+/* The number of rules (the rule editor has its own copy of this rule, for its settings) */
+.summary { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 380px; }
+.property-body { padding: 0 12px 10px 26px; }

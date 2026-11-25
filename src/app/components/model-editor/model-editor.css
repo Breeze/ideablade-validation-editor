@@ -1,0 +1,6 @@
+/* The settings, the model-level rules and the properties are each a panel. (The document editor has its own copy of
+   this rule.) */
+section { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px 10px; margin: 10px 0; }
+.model-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* .model-name (the name input in the head) stays in styles.css: scoped here, it would outrank `input:focus` and lose
+   its accent border while focused. */

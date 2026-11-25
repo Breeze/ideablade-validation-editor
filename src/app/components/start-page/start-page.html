@@ -1,0 +1,17 @@
+<div class="empty-state">
+  <p>Open a project (<code>*.ivproj</code>), or File → Open Recent Project, or validation metadata: JSON files, TypeScript files with a <code>ModelValidationMetadataMap</code>, or C# files with the metadata as a JSON string. Open several to edit them side by side; the checks see them together, as the library merges them.</p>
+  <button class="primary" (click)="store.open()">Open…</button>
+  @for (f of newFormats; track f.format) { <button (click)="store.newFile(f.format)" [title]="f.hint">New {{ f.label }}</button> }
+  <!-- The recent projects: name, and the folder it's in -->
+  @if (recentProjects().length) {
+    <div class="recent">
+      <div class="nav-title">Recent projects</div>
+      @for (p of recentProjects(); track p) {
+        <button class="recent-project" [title]="'Open ' + p" (click)="store.openPath(p)">
+          <span class="recent-name">{{ fileName(p) }}</span>
+          <span class="recent-folder">{{ folderOf(p) }}</span>
+        </button>
+      }
+    </div>
+  }
+</div>

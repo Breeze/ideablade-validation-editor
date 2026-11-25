@@ -1,11 +1,19 @@
-// Electron main process: one window, plus file dialogs and file I/O for the renderer (see preload.cjs).
-const { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen } = require('electron');
-const fs = require('node:fs/promises');
-const path = require('node:path');
-const { withTypeScriptModels } = require('./typescript-models.cjs');
-const { readTsMetadata, writeTsMetadata, insertTsMetadata, removeTsMetadata, newTsMetadataFile } = require('./typescript-metadata.cjs');
-const { PROJECT_EXTENSION, projectFileName, findProject, readProject, writeProject, expandPatterns, watchPatterns } = require('./project.cjs');
-const {
+// Electron main process: one window, its menu, and everything the renderer can't do itself, as IPC handlers: file
+// dialogs and file I/O, reading TypeScript, the project file, watching model sources, and the user's settings. The
+// renderer reaches these through the preload script (preload.ts, `window.editorHost`; its interface is EditorHost in
+// src/app/services/host.ts). Each `ipcMain.handle` answers an `invoke` (the renderer awaits the result); each
+// `ipcMain.on` takes a `send` that needs no answer.
+//
+// This file is compiled to dist-electron/main.js (package.json's "main"), next to preload.js; the Angular app is in
+// dist/ and the icons in build/, both one folder up from it, in the source tree and in the packaged app alike.
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, type FileFilter, type MenuItemConstructorOptions } from 'electron';
+import fsSync, { type FSWatcher } from 'node:fs';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { PROJECT_EXTENSION, projectFileName, findProject, readProject, writeProject, expandPatterns, watchPatterns, type ProjectToWrite } from './project';
+import { readTsMetadata, writeTsMetadata, insertTsMetadata, removeTsMetadata, newTsMetadataFile, type JsonObject } from './typescript-metadata';
+import { withTypeScriptModels, type ReadFile } from './typescript-models';
+import {
   loadWindowState,
   trackWindowState,
   getSelection,
@@ -21,16 +29,25 @@ const {
   setLastSaveFolder,
   getLayout,
   setLayout,
-} = require('./window-state.cjs');
+  type PaneLayout,
+  type SavedFolds,
+  type SavedSelection,
+} from './window-state';
 
-let win;
+/** The one window, created once the app is ready; the handlers below only run after that. */
+let win!: BrowserWindow;
+/** Set once the renderer has agreed to close (nothing unsaved, or the user said so): the next close goes through. */
 let forceClose = false;
 
-/** The window's place and the sidebar selections, a user's settings (window-state.cjs). */
-const windowStateFile = () => path.join(app.getPath('userData'), 'window-state.json');
+/** The window's place and the sidebar selections, a user's settings (window-state.ts). */
+const windowStateFile = (): string => path.join(app.getPath('userData'), 'window-state.json');
 
-function createWindow() {
-  // The size and position it had when it was last closed (window-state.cjs).
+/**
+ * Creates the window where it was last closed, loads the renderer (the dev server's URL under `npm run dev`, else the
+ * built Angular app in dist/), and routes closing through the renderer so it can ask about unsaved changes.
+ */
+function createWindow(): void {
+  // The size and position it had when it was last closed (window-state.ts).
   const stateFile = windowStateFile();
   const state = loadWindowState(stateFile, screen.getAllDisplays());
   win = new BrowserWindow({
@@ -45,10 +62,12 @@ function createWindow() {
     backgroundColor: '#1e1e1e', // the default dark theme, until the renderer says otherwise (no white flash)
     title: 'IdeaBlade Validation Editor',
     // The packaged exe has it built in; running from source (electron .) needs it here, or Electron's own shows.
-    // (Windows takes the .ico, with its small sizes; Linux a PNG. macOS uses the app bundle's.)
+    // (Windows takes the .ico, with its small sizes; Linux a PNG. macOS uses the app bundle's.) build/ is next to
+    // dist-electron/, where this file is compiled to.
     icon: path.join(__dirname, '..', 'build', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
+      // Compiled next to this file (dist-electron/preload.js).
+      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -59,11 +78,11 @@ function createWindow() {
   win.once('ready-to-show', () => win.show());
   trackWindowState(win, stateFile);
 
-  const devUrl = process.env.ELECTRON_START_URL;
+  const devUrl = process.env['ELECTRON_START_URL'];
   if (devUrl) {
-    win.loadURL(devUrl);
+    void win.loadURL(devUrl);
   } else {
-    win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    void win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
 
   // Ask the renderer whether there are unsaved changes before closing.
@@ -74,9 +93,9 @@ function createWindow() {
   });
 }
 
-// Validation metadata lives in JSON files, or in TypeScript and C# files (see typescript-metadata.cjs and
+// Validation metadata lives in JSON files, or in TypeScript and C# files (see typescript-metadata.ts and
 // src/lib/cs-metadata.ts).
-const metadataFilters = [
+const metadataFilters: FileFilter[] = [
   { name: 'Validation metadata and projects', extensions: ['json', 'ts', 'cs', 'ivproj'] },
   { name: 'JSON', extensions: ['json'] },
   { name: 'TypeScript', extensions: ['ts'] },
@@ -84,15 +103,20 @@ const metadataFilters = [
   { name: 'IdeaBlade Validation Project', extensions: ['ivproj'] },
 ];
 
-ipcMain.handle('file:open', async (_e, title) => {
+/** File → Open: asks for metadata files or a project, and returns each with its text (none when cancelled). */
+ipcMain.handle('file:open', async (_e, title: string): Promise<ReadFile[]> => {
   const result = await dialog.showOpenDialog(win, { title, properties: ['openFile', 'multiSelections'], filters: metadataFilters });
   if (result.canceled) return [];
   return Promise.all(result.filePaths.map(async (p) => ({ path: p, text: await fs.readFile(p, 'utf8') })));
 });
 
-ipcMain.handle('file:read', async (_e, filePath) => withTypeScriptModels({ path: filePath, text: await fs.readFile(filePath, 'utf8') }));
+/** Reads a file by path; a TypeScript file comes with its models, validators and functions (typescript-models.ts). */
+ipcMain.handle('file:read', async (_e, filePath: string): Promise<ReadFile> =>
+  withTypeScriptModels({ path: filePath, text: await fs.readFile(filePath, 'utf8') }),
+);
 
-ipcMain.handle('file:save', async (_e, filePath, text) => {
+/** Writes a file the renderer has already turned into text; returns its path. */
+ipcMain.handle('file:save', async (_e, filePath: string, text: string): Promise<string> => {
   await fs.writeFile(filePath, text, 'utf8');
   return filePath;
 });
@@ -101,10 +125,10 @@ ipcMain.handle('file:save', async (_e, filePath, text) => {
  * Asks where to save; the format follows the extension chosen. The renderer writes the file. A file that has a path
  * starts next to it; a new one (just a name) in the folder last chosen here, else the open project's, else Documents.
  */
-ipcMain.handle('file:choose-save-path', async (_e, suggestion, projectDir) => {
+ipcMain.handle('file:choose-save-path', async (_e, suggestion: string | undefined, projectDir: string | undefined): Promise<string | undefined> => {
   const filters = metadataFilters.slice(1, 4); // the metadata formats
   const ext = path.extname(suggestion ?? '').slice(1).toLowerCase();
-  filters.sort((a, b) => (b.extensions[0] === ext) - (a.extensions[0] === ext)); // the current format first
+  filters.sort((a, b) => Number(b.extensions[0] === ext) - Number(a.extensions[0] === ext)); // the current format first
   const name = suggestion ?? 'validation.metadata.json';
   const defaultPath = path.isAbsolute(name)
     ? name
@@ -115,45 +139,64 @@ ipcMain.handle('file:choose-save-path', async (_e, suggestion, projectDir) => {
   return result.filePath;
 });
 
-// TypeScript metadata needs the TypeScript compiler, so the renderer asks for it here. These work on text only.
-ipcMain.handle('ts:read-metadata', (_e, text, fileName) => readTsMetadata(text, fileName));
-ipcMain.handle('ts:write-metadata', (_e, text, fileName, name, json) => writeTsMetadata(text, fileName, name, json));
-ipcMain.handle('ts:insert-metadata', (_e, text, fileName, name, json) => insertTsMetadata(text, fileName, name, json));
-ipcMain.handle('ts:remove-metadata', (_e, text, fileName, name) => removeTsMetadata(text, fileName, name));
-ipcMain.handle('ts:new-metadata', (_e, name, json) => newTsMetadataFile(name, json));
+// TypeScript metadata needs the TypeScript compiler, so the renderer asks for it here. These work on text only: the
+// renderer reads and writes the file itself (file:read, file:save).
 
-// The project file (*.ivproj, see project.cjs): the renderer works with absolute paths.
-ipcMain.handle('project:find', (_e, filePath) => findProject(filePath));
-// A project read or written (opened, found next to a metadata file, created) becomes the one to reopen next time and
-// the first in File → Open Recent Project (and in the taskbar's jump list).
-function projectUsed(usedPath) {
+/** The metadata maps in a TS file's text, as JSON (or read-only, with the reason). */
+ipcMain.handle('ts:read-metadata', (_e, text: string, fileName: string) => readTsMetadata(text, fileName));
+/** The TS file's text with one map replaced by new JSON, the rest of the file kept. */
+ipcMain.handle('ts:write-metadata', (_e, text: string, fileName: string, name: string, json: JsonObject) => writeTsMetadata(text, fileName, name, json));
+/** The TS file's text with another map added at the end. */
+ipcMain.handle('ts:insert-metadata', (_e, text: string, fileName: string, name: string, json: JsonObject) => insertTsMetadata(text, fileName, name, json));
+/** The TS file's text without a map (and its doc comment). */
+ipcMain.handle('ts:remove-metadata', (_e, text: string, fileName: string, name: string) => removeTsMetadata(text, fileName, name));
+/** A new TS file's text holding one map (File → New → TypeScript). */
+ipcMain.handle('ts:new-metadata', (_e, name: string, json: JsonObject) => newTsMetadataFile(name, json));
+
+// The project file (*.ivproj, see project.ts): the renderer works with absolute paths.
+
+/** The project a metadata file belongs to: the nearest *.ivproj in its folder or above. */
+ipcMain.handle('project:find', (_e, filePath: string) => findProject(filePath));
+
+/**
+ * A project read or written (opened, found next to a metadata file, created) becomes the one to reopen next time and
+ * the first in File → Open Recent Project (and in the taskbar's jump list). The menu is rebuilt only when the first
+ * recent project changes.
+ */
+function projectUsed(usedPath: string): void {
   const projectPath = path.resolve(usedPath); // one way of writing each path (backslashes), so none is listed twice
   const before = getRecentProjects(windowStateFile())[0];
   setLastProject(windowStateFile(), projectPath);
   app.addRecentDocument(projectPath);
   if (before?.toLowerCase() !== projectPath.toLowerCase()) updateMenu();
 }
+
 // File → Close Project is there while a project is open; a closed one isn't reopened at the next start.
 let projectOpen = false;
-ipcMain.on('project:open-state', (_e, open) => {
+/** The renderer opened or closed a project: File → Close Project follows. */
+ipcMain.on('project:open-state', (_e, open: boolean) => {
   if (projectOpen === !!open) return;
   projectOpen = !!open;
   updateMenu();
 });
 // File → Discard All Unsaved Changes is there while something is unsaved.
 let hasUnsaved = false;
-ipcMain.on('app:unsaved-state', (_e, unsaved) => {
+/** Something became unsaved, or everything saved: File → Discard All Unsaved Changes follows. */
+ipcMain.on('app:unsaved-state', (_e, unsaved: boolean) => {
   if (hasUnsaved === !!unsaved) return;
   hasUnsaved = !!unsaved;
   updateMenu();
 });
+/** The user closed the project: the next start opens nothing (it stays in the recent list). */
 ipcMain.on('project:closed', () => clearLastProject(windowStateFile()));
-ipcMain.handle('project:read', async (_e, projectPath) => {
+/** Reads a project with absolute paths and its patterns expanded, and makes it the recent one. */
+ipcMain.handle('project:read', async (_e, projectPath: string) => {
   const project = await readProject(projectPath);
   projectUsed(projectPath);
   return project;
 });
-ipcMain.handle('project:write', async (_e, projectPath, project) => {
+/** Writes a project (keeping keys the editor doesn't manage), returns it as read back, and makes it the recent one. */
+ipcMain.handle('project:write', async (_e, projectPath: string, project: ProjectToWrite) => {
   const result = await writeProject(projectPath, project);
   projectUsed(projectPath);
   return result;
@@ -162,9 +205,16 @@ ipcMain.handle('project:write', async (_e, projectPath, project) => {
 // Source patterns (a folder of DTOs: dir/**/*.{ts,cs}): the files each matches, and the folders they point at watched,
 // so files appearing or disappearing there (a new DTO, a deleted entity) are sent to the renderer as the patterns'
 // new lists of files. One set of patterns at a time, the editor's; called again when they change.
-ipcMain.handle('sources:expand-patterns', (_e, patterns, baseDir) => expandPatterns(patterns, baseDir));
-let stopPatternWatch;
-ipcMain.handle('sources:watch-patterns', async (_e, patterns) => {
+
+/** Patterns made absolute (relative ones to `baseDir`), each with the files it matches now. */
+ipcMain.handle('sources:expand-patterns', (_e, patterns: string[], baseDir: string | undefined) => expandPatterns(patterns, baseDir));
+/** Stops watching the previous patterns' folders, if any. */
+let stopPatternWatch: (() => void) | undefined;
+/**
+ * Watches these patterns' folders instead of the previous ones (none for an empty list); changes go to the renderer
+ * as `sources:pattern-matches`.
+ */
+ipcMain.handle('sources:watch-patterns', async (_e, patterns: string[] | undefined) => {
   stopPatternWatch?.();
   stopPatternWatch = undefined;
   if (!patterns?.length) return;
@@ -174,8 +224,8 @@ ipcMain.handle('sources:watch-patterns', async (_e, patterns) => {
     // a folder that isn't there (yet): nothing to watch
   }
 });
-// Add folder: a folder to take the sources from, starting in the project's folder.
-ipcMain.handle('file:choose-source-folder', async (_e, defaultDir) => {
+/** Add folder: a folder to take the sources from, starting in the project's folder; undefined when cancelled. */
+ipcMain.handle('file:choose-source-folder', async (_e, defaultDir: string | undefined) => {
   const result = await dialog.showOpenDialog(win, {
     title: 'Add a folder of model sources (TS and C# files, in it and its subfolders)',
     defaultPath: defaultDir,
@@ -183,7 +233,8 @@ ipcMain.handle('file:choose-source-folder', async (_e, defaultDir) => {
   });
   return result.canceled ? undefined : result.filePaths[0];
 });
-ipcMain.handle('project:choose-path', async (_e, defaultDir) => {
+/** Asks where to create a project file, in `defaultDir` (else Documents); the path always ends in .ivproj. */
+ipcMain.handle('project:choose-path', async (_e, defaultDir: string | undefined) => {
   const result = await dialog.showSaveDialog(win, {
     title: 'Create a project file',
     // Named after its folder by default: temphire.angular -> temphire.angular.ivproj.
@@ -195,23 +246,34 @@ ipcMain.handle('project:choose-path', async (_e, defaultDir) => {
   return path.join(path.dirname(result.filePath), projectFileName(path.basename(result.filePath)));
 });
 
-ipcMain.handle('app:confirm', async (_e, message, detail, buttons) => {
+/** A question with buttons (the first the default, the last the answer to Esc); returns the index of the one chosen. */
+ipcMain.handle('app:confirm', async (_e, message: string, detail: string, buttons: string[]) => {
   const result = await dialog.showMessageBox(win, { type: 'question', message, detail, buttons, defaultId: 0, cancelId: buttons.length - 1 });
   return result.response;
 });
 
+/** The renderer agreed to close (after asking about unsaved changes): close for real. */
 ipcMain.on('app:close', () => {
   forceClose = true;
   win.close();
 });
 
 // Model sources (Breeze metadata, TS and C# files) are watched, so the editor always offers the current models.
-const watchers = new Map(); // path -> { watcher, timer }
-const fsSync = require('node:fs');
 
-function watchFile(filePath) {
-  const entry = { watcher: undefined, timer: undefined };
-  const fire = () => {
+/** A watched source: its watcher (while the file is there) and the timer that waits for a save to settle. */
+interface WatchedFile {
+  watcher: FSWatcher | undefined;
+  timer: NodeJS.Timeout | undefined;
+}
+const watchers = new Map<string, WatchedFile>(); // path -> { watcher, timer }
+
+/**
+ * Watches one source file and sends it to the renderer, read again (with its models, for TS), whenever it changes;
+ * or an error when it can't be read (deleted, say).
+ */
+function watchFile(filePath: string): WatchedFile {
+  const entry: WatchedFile = { watcher: undefined, timer: undefined };
+  const fire = (): void => {
     clearTimeout(entry.timer);
     // Editors often write a file in several steps (truncate, write, rename): wait until it settles.
     entry.timer = setTimeout(async () => {
@@ -225,7 +287,7 @@ function watchFile(filePath) {
       rewatch();
     }, 300);
   };
-  const rewatch = () => {
+  const rewatch = (): void => {
     try {
       entry.watcher?.close();
       entry.watcher = fsSync.watch(filePath, fire);
@@ -238,7 +300,8 @@ function watchFile(filePath) {
   return entry;
 }
 
-ipcMain.handle('sources:watch', (_e, paths) => {
+/** Watches exactly these source files: new ones are added, the ones no longer listed stop being watched. */
+ipcMain.handle('sources:watch', (_e, paths: string[]) => {
   for (const [p, entry] of watchers) {
     if (!paths.includes(p)) {
       entry.watcher?.close();
@@ -251,7 +314,8 @@ ipcMain.handle('sources:watch', (_e, paths) => {
   }
 });
 
-ipcMain.handle('file:open-source', async () => {
+/** File → Add source: asks for model sources and returns each read, with its models for TS (none when cancelled). */
+ipcMain.handle('file:open-source', async (): Promise<ReadFile[]> => {
   const result = await dialog.showOpenDialog(win, {
     title: 'Add a model source',
     properties: ['openFile', 'multiSelections'],
@@ -266,28 +330,39 @@ ipcMain.handle('file:open-source', async () => {
   return Promise.all(result.filePaths.map(async (p) => withTypeScriptModels({ path: p, text: await fs.readFile(p, 'utf8') })));
 });
 
-ipcMain.on('app:set-title', (_e, title) => win.setTitle(title));
+/** The window's title, which the renderer keeps up to date (the open file or project, unsaved marker). */
+ipcMain.on('app:set-title', (_e, title: string) => win.setTitle(title));
 
 // What was selected in the sidebar, per project (or first metadata file), kept with the window's place.
-ipcMain.handle('ui:get-layout', () => getLayout(windowStateFile()));
-ipcMain.on('ui:set-layout', (_e, layout) => setLayout(windowStateFile(), layout));
-ipcMain.handle('ui:get-selection', (_e, key) => getSelection(windowStateFile(), key));
-ipcMain.on('ui:set-selection', (_e, key, selection) => setSelection(windowStateFile(), key, selection));
-ipcMain.handle('ui:get-folds', (_e, key) => getFolds(windowStateFile(), key));
-ipcMain.on('ui:set-folds', (_e, key, folds) => setFolds(windowStateFile(), key, folds));
 
-// The renderer's theme setting (dark, light or system): the window frame, menus and dialogs follow it.
-ipcMain.on('app:set-theme', (_e, theme) => {
-  nativeTheme.themeSource = ['dark', 'light', 'system'].includes(theme) ? theme : 'dark';
+/** The panes' widths as the user left them. */
+ipcMain.handle('ui:get-layout', () => getLayout(windowStateFile()));
+/** Saves the panes' widths (after a splitter is dragged). */
+ipcMain.on('ui:set-layout', (_e, layout: PaneLayout) => setLayout(windowStateFile(), layout));
+/** The sidebar selection saved for a workspace. */
+ipcMain.handle('ui:get-selection', (_e, key: string) => getSelection(windowStateFile(), key));
+/** Saves a workspace's sidebar selection. */
+ipcMain.on('ui:set-selection', (_e, key: string, selection: SavedSelection) => setSelection(windowStateFile(), key, selection));
+/** The folded files and maps saved for a workspace. */
+ipcMain.handle('ui:get-folds', (_e, key: string) => getFolds(windowStateFile(), key));
+/** Saves a workspace's folded files and maps. */
+ipcMain.on('ui:set-folds', (_e, key: string, folds: SavedFolds) => setFolds(windowStateFile(), key, folds));
+
+/** The renderer's theme setting (dark, light or system): the window frame, menus and dialogs follow it. */
+ipcMain.on('app:set-theme', (_e, theme: string) => {
+  nativeTheme.themeSource = theme === 'dark' || theme === 'light' || theme === 'system' ? theme : 'dark';
   win.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1e1e1e' : '#f6f7f9');
 });
 
-// A file passed on the command line (e.g. through the "Open with" file association).
-// Command line: a project (*.ivproj), or metadata files to open (JSON, TS or C#) and sources to load with them:
-//   electron . temphire.ivproj
-//   electron . validation.metadata.json client-validation-metadata.ts --source=breeze-metadata.json --source=src/app/view-models.ts
-// Relative paths are resolved against the working directory.
+/**
+ * What to open at startup. A file passed on the command line (e.g. through the "Open with" file association).
+ * Command line: a project (*.ivproj), or metadata files to open (JSON, TS or C#) and sources to load with them:
+ *   electron . temphire.ivproj
+ *   electron . validation.metadata.json client-validation-metadata.ts --source=breeze-metadata.json --source=src/app/view-models.ts
+ * Relative paths are resolved against the working directory. Without any, the project used last, if it's still there.
+ */
 ipcMain.handle('app:startup-args', () => {
+  // The packaged exe's arguments start after it; `electron .` has the app's folder first.
   const args = process.argv.slice(app.isPackaged ? 1 : 2);
   const files = args.filter((a) => !a.startsWith('-') && /\.(json|ts|cs|ivproj)$/i.test(a)).map((a) => path.resolve(a));
   const sources = args.filter((a) => a.startsWith('--source=')).map((a) => path.resolve(a.slice('--source='.length)));
@@ -298,12 +373,14 @@ ipcMain.handle('app:startup-args', () => {
   }
   return { files, sources };
 });
-function sendMenu(command, arg) {
+
+/** A menu item's click: sends the command (and its argument) to the renderer, which does the work. */
+function sendMenu(command: string, arg?: string): () => void {
   return () => win.webContents.send('menu', command, arg);
 }
 
 /** File → Open Recent Project: the recent projects, numbered (Alt+F, R, 1 opens the latest), and a way to clear them. */
-function recentProjectsMenu() {
+function recentProjectsMenu(): MenuItemConstructorOptions[] {
   const recent = getRecentProjects(windowStateFile());
   if (!recent.length) return [{ label: 'No recent projects', enabled: false }];
   return [
@@ -324,15 +401,18 @@ function recentProjectsMenu() {
   ];
 }
 
-/** Builds the menu again, for the current recent projects. */
-function updateMenu() {
+/** Builds the menu again, for the current recent projects and state (project open, anything unsaved). */
+function updateMenu(): void {
   Menu.setApplicationMenu(buildMenu());
   // The page shown when nothing is open lists them too.
   if (win && !win.isDestroyed()) win.webContents.send('recent-projects', getRecentProjects(windowStateFile()));
 }
+
+/** The recent projects, the latest first, for the page shown when nothing is open. */
 ipcMain.handle('app:recent-projects', () => getRecentProjects(windowStateFile()));
 
-const buildMenu = () => Menu.buildFromTemplate([
+/** The application menu: File (commands the renderer carries out), Electron's Edit menu, and View. */
+const buildMenu = (): Menu => Menu.buildFromTemplate([
   {
     label: '&File',
     submenu: [
@@ -381,9 +461,10 @@ const buildMenu = () => Menu.buildFromTemplate([
   },
 ]);
 
-app.whenReady().then(() => {
+void app.whenReady().then(() => {
   updateMenu();
   createWindow();
 });
 
+// One window: closing it ends the app, on macOS too.
 app.on('window-all-closed', () => app.quit());

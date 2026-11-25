@@ -1,13 +1,13 @@
 import type { ThemeSetting } from './theme';
-import type { JsonObject } from '../lib/doc';
-import type { SourceFunction, SourceModel, SourceValidator } from '../lib/sources';
+import type { JsonObject } from '../../lib/doc';
+import type { SourceFunction, SourceModel, SourceValidator } from '../../lib/sources';
 
-// What the Electron preload script (electron/preload.cjs) exposes as `window.editorHost`.
+// What the Electron preload script (electron/preload.ts) exposes as `window.editorHost`.
 
 export interface OpenedFile {
   path: string;
   text: string;
-  /** For a TypeScript file: its models, read by the main process (electron/typescript-models.cjs). */
+  /** For a TypeScript file: its models, read by the main process (electron/typescript-models.ts). */
   models?: SourceModel[];
   validators?: SourceValidator[];
   functions?: SourceFunction[];
@@ -30,7 +30,7 @@ export interface StartupArgs {
   sources: string[];
 }
 
-/** A metadata map found in a TypeScript file (electron/typescript-metadata.cjs). */
+/** A metadata map found in a TypeScript file (electron/typescript-metadata.ts). */
 export interface TsMetadata {
   name: string;
   json: JsonObject;
@@ -53,7 +53,7 @@ export interface RegexTestSet {
   shouldFail: string[];
 }
 
-/** A project (*.ivproj, electron/project.cjs), with absolute paths. */
+/** A project (*.ivproj, electron/project.ts), with absolute paths. */
 export interface Project {
   path: string;
   metadata: string[];

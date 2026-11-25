@@ -1,0 +1,12 @@
+:host { display: block; padding: 6px; }
+.issue-group { font-weight: 600; font-size: 12px; color: var(--muted); padding: 8px 4px 2px; }
+/* An issue: a full-width button laid out as a grid, the severity beside the path and the message */
+.issue { display: grid; grid-template-columns: 16px 1fr auto; gap: 2px 6px; width: 100%; text-align: left; border: none; border-bottom: 1px solid var(--line); border-radius: 0; padding: 6px 4px; background: transparent; }
+.issue:hover { background: var(--hover); }
+.issue .sev { font-weight: 700; grid-row: span 2; }
+.issue.error .sev { color: var(--error); }
+.issue.warning .sev { color: var(--warning); }
+.issue.info .sev { color: var(--info); }
+.issue .where { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.issue .origin { font-size: 11px; color: var(--muted); text-transform: uppercase; }
+.issue .msg { grid-column: 2 / 4; }

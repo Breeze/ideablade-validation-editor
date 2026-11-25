@@ -1,0 +1,16 @@
+<div class="tabs">
+  <button [class.active]="pane() === 'json'" (click)="pane.set('json')">{{ codeTabLabel() }}</button>
+  <button [class.active]="pane() === 'issues'" (click)="pane.set('issues')">
+    Issues
+    @if (store.errorCount()) { <span class="badge error-badge">{{ store.errorCount() }}</span> }
+    @if (store.warningCount()) { <span class="badge warning-badge">{{ store.warningCount() }}</span> }
+  </button>
+  <button [class.active]="pane() === 'test'" (click)="pane.set('test')">Try it</button>
+</div>
+<div class="pane">
+  @switch (pane()) {
+    @case ('json') { <app-json-view /> }
+    @case ('issues') { <app-issues-panel /> }
+    @case ('test') { <app-tester-panel /> }
+  }
+</div>

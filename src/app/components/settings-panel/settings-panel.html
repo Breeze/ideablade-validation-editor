@@ -1,0 +1,13 @@
+<div class="nav-title">Settings</div>
+<label class="setting">Other validators <small>(the app registers them, but they're in no source file; comma-separated)</small>
+  <input [value]="store.settings().customValidators.join(', ')" placeholder="e.g. loginAvailable" (change)="setCustom($any($event.target).value)" />
+</label>
+<label class="setting check">
+  <input type="checkbox" [checked]="store.settings().camelCase" (change)="store.updateSettings({ camelCase: $any($event.target).checked })" />
+  camelCase server names (Breeze nameOnServer, C#)
+</label>
+<label class="setting">Theme
+  <select (change)="store.updateSettings({ theme: $any($event.target).value })">
+    @for (t of themes; track t) { <option [value]="t" [selected]="store.settings().theme === t">{{ themeLabels[t] }}</option> }
+  </select>
+</label>

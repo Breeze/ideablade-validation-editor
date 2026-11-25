@@ -2,75 +2,45 @@ import { ChangeDetectionStrategy, Component, ElementRef, afterNextRender, effect
 import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap, type Completion, type CompletionContext } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { javascriptLanguage } from '@codemirror/lang-javascript';
-import { HighlightStyle, LanguageSupport, syntaxHighlighting } from '@codemirror/language';
-import { type Diagnostic, linter } from '@codemirror/lint';
+import { LanguageSupport, syntaxHighlighting } from '@codemirror/language';
 import { EditorState } from '@codemirror/state';
 import { EditorView, keymap, placeholder as placeholderExtension } from '@codemirror/view';
-import { tags } from '@lezer/highlight';
-import { ExpressionSyntaxError, parseExpression } from 'ideablade-validation';
 
-import { type ExpressionSite, type Member, complete, siteSummary } from '../lib/completion';
-import { EditorStore } from './editor-store';
-
-// Colours come from the theme (styles.css: --syn-*), so expressions look like code in VS Code in either theme.
-const highlight = HighlightStyle.define([
-  { tag: tags.keyword, color: 'var(--syn-keyword)' },
-  { tag: [tags.string, tags.special(tags.string), tags.regexp], color: 'var(--syn-string)' },
-  { tag: [tags.number, tags.bool, tags.null], color: 'var(--syn-number)' },
-  { tag: tags.propertyName, color: 'var(--syn-property)' },
-  { tag: tags.variableName, color: 'var(--syn-variable)' },
-  { tag: tags.operator, color: 'var(--syn-operator)' },
-]);
-
-const COMPLETION_TYPES: Record<Member['kind'], string> = {
-  variable: 'variable',
-  property: 'property',
-  function: 'function',
-  method: 'method',
-  constant: 'constant',
-  keyword: 'keyword',
-  type: 'class',
-};
-
-const theme = EditorView.theme({
-  '&': { border: '1px solid var(--border)', borderRadius: '4px', background: 'var(--input-bg)', color: 'var(--text)', fontSize: '13px' },
-  '&.cm-focused': { outline: '2px solid var(--accent-soft)', borderColor: 'var(--accent)' },
-  '.cm-content': { fontFamily: 'var(--mono)', padding: '4px 0', fontVariantLigatures: 'none', caretColor: 'var(--text)' },
-  '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--text)' },
-  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': { background: 'var(--selection) !important' },
-  '.cm-line': { padding: '0 6px' },
-  '.cm-placeholder': { color: 'var(--placeholder)' },
-  '.cm-tooltip': { background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)' },
-  '.cm-tooltip-autocomplete ul li': { fontFamily: 'var(--mono)', fontSize: '13px' },
-  '.cm-tooltip-autocomplete ul li[aria-selected]': { background: 'var(--accent)', color: 'var(--on-accent)' },
-  '.cm-completionDetail': { color: 'var(--muted)', fontStyle: 'normal', marginLeft: '1em' },
-  '.cm-tooltip-autocomplete ul li[aria-selected] .cm-completionDetail': { color: 'var(--on-accent)', opacity: '0.8' },
-  '.cm-completionMatchedText': { textDecoration: 'none', fontWeight: '700' },
-  '.cm-tooltip.cm-completionInfo': { maxWidth: '360px', fontSize: '13px', padding: '4px 8px' },
-  '.cm-diagnostic-error': { borderLeftColor: 'var(--error)' },
-});
+import { type ExpressionSite, complete, siteSummary } from '../../../lib/completion';
+import { EditorStore } from '../../services/editor-store';
+import { COMPLETION_TYPES, expressionHighlight, expressionSyntaxLinter, expressionTheme } from './expression-input-codemirror';
 
 /**
  * An expression field with code completion: the variables, `context` members, model properties (also behind
  * `store('Type')` and in callbacks like `addresses.some(a => a.`), the app's own functions, the globals and the
  * methods the safe evaluator allows. Syntax errors are underlined where the parser stops.
+ *
+ * Used for conditions (model editor, rule editor) and an `expression` validator's expression (rule editor). It doesn't
+ * write to the store itself: edits go out through `changed`, and the editor that owns the value writes it. A
+ * CodeMirror editor, created once the template has rendered.
  */
 @Component({
   selector: 'app-expression-input',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `<div #host class="expression-host"></div><div class="expression-hint">{{ hint() }}</div>`,
+  templateUrl: './expression-input.html',
+  styleUrl: './expression-input.css',
 })
 export class ExpressionInput implements OnDestroy {
   private readonly store = inject(EditorStore);
+  /** The expression's text. */
   readonly value = input<string>('');
+  /** Where the expression is (a model's condition, a rule's condition or expression...): what completion offers. */
   readonly site = input.required<ExpressionSite>();
+  /** Read once, when the editor is created. */
   readonly placeholder = input('');
+  /** The text was edited. */
   readonly changed = output<string>();
 
   private readonly hostElement = viewChild.required<ElementRef<HTMLElement>>('host');
   private view?: EditorView;
 
   constructor() {
+    // CodeMirror needs the host element, so it's created once the template has rendered.
     afterNextRender(() => this.create(untracked(this.value) ?? ''));
     // Changes from elsewhere (the JSON view, undo of a rename...) replace the text; our own edits come back equal.
     effect(() => {
@@ -81,11 +51,15 @@ export class ExpressionInput implements OnDestroy {
     });
   }
 
+  /** The line under the field: what the expression can use here. */
   hint(): string {
     return siteSummary(this.site());
   }
 
+  /** Creates the CodeMirror editor in the host element, with completion for this site. */
   private create(value: string): void {
+    // Completion reads the site and the store's completion environment (documents, model sources, the app's
+    // functions) each time, so it always offers what's there now.
     const source = (context: CompletionContext) => {
       const text = context.state.doc.toString();
       const result = complete(text, context.pos, this.site(), this.store.completionEnv());
@@ -107,19 +81,6 @@ export class ExpressionInput implements OnDestroy {
       };
     };
 
-    const syntax = linter((view): Diagnostic[] => {
-      const text = view.state.doc.toString();
-      if (!text.trim()) return [];
-      try {
-        parseExpression(text);
-        return [];
-      } catch (e) {
-        if (!(e instanceof ExpressionSyntaxError)) return [];
-        const from = Math.min(Math.max(0, e.position), text.length);
-        return [{ from, to: Math.min(text.length, from + 1), severity: 'error', message: e.reason }];
-      }
-    }, { delay: 300 });
-
     this.view = new EditorView({
       parent: this.hostElement().nativeElement,
       state: EditorState.create({
@@ -128,13 +89,13 @@ export class ExpressionInput implements OnDestroy {
           history(),
           closeBrackets(),
           new LanguageSupport(javascriptLanguage),
-          syntaxHighlighting(highlight),
+          syntaxHighlighting(expressionHighlight),
           autocompletion({ override: [source], icons: false, activateOnTyping: true }),
-          syntax,
+          expressionSyntaxLinter(),
           keymap.of([...closeBracketsKeymap, ...completionKeymap, ...historyKeymap, ...defaultKeymap]),
           EditorView.lineWrapping,
           placeholderExtension(this.placeholder()),
-          theme,
+          expressionTheme,
           EditorView.updateListener.of((update) => {
             if (update.docChanged) this.changed.emit(update.state.doc.toString());
           }),

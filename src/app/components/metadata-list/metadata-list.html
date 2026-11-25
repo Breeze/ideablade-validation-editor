@@ -1,0 +1,94 @@
+@for (g of tree.fileGroups(); track g.key) {
+  @if (tree.showGroup(g)) {
+  <!-- A file: a map can be dropped on it (and a model type, when it has one map) -->
+  <div class="doc" [class.active]="g.docs.includes(store.active()!)" [class.drop-target]="dropOn() === g.key"
+    (dragover)="overFile($event, g)" (dragleave)="leave($event, g.key)" (drop)="dropOnFile($event, g)">
+    <div class="doc-head" [title]="g.docs[0].path() ?? 'Not saved yet'" (click)="store.select({ docId: g.docs[0].id, kind: 'document' })">
+      <button class="icon twisty" [title]="tree.fileFolded(g) ? 'Unfold' : 'Fold'" [attr.aria-expanded]="!tree.fileFolded(g)" (click)="$event.stopPropagation(); tree.toggleFile(g)">{{ tree.fileFolded(g) ? '▸' : '▾' }}</button>
+      <span class="badge kind">{{ formatLabels[g.docs[0].format()] }}</span>
+      <span class="doc-name">@for (p of tree.parts(g.docs[0].fileLabel()); track $index) {@if (p.match) {<mark>{{ p.text }}</mark>} @else {{{ p.text }}}}</span>
+      @if (groupDirty(g)) { <span class="dirty" title="Unsaved changes">●</span> }
+      @if (!tree.hasMapLines(g) && g.docs[0].readOnly()) { <span class="badge muted" [title]="g.docs[0].readOnly()!">read-only</span> }
+      <span class="spacer"></span>
+      @if (groupErrors(g); as errors) { <span class="badge error-badge">{{ errors }}</span> }
+      <button class="icon" title="Close: takes it out of the project, when there is one" (click)="$event.stopPropagation(); closeFile(g)">✕</button>
+    </div>
+    @if (!tree.fileFolded(g)) {
+    <!-- Add map: first, so it's at hand in a file with many maps (TS and C# files only) -->
+    @if (tree.hasMapLines(g)) {
+      <div class="add-row add-map">
+        <input [placeholder]="g.docs[0].format() === 'ts' ? 'map name, e.g. adminMetadata' : 'map name, e.g. AdminJson'"
+          [title]="'Add another metadata map to ' + g.docs[0].fileLabel()" [value]="newMaps()[g.key] ?? ''"
+          (input)="setNewMap(g.key, $any($event.target).value)" (keydown.enter)="addMap(g)" />
+        <button (click)="addMap(g)" [disabled]="!(newMaps()[g.key] ?? '').trim()">Add map</button>
+      </div>
+    }
+    @for (d of g.docs; track d.id) {
+    @if (tree.showDoc(g, d)) {
+    <!-- A map: a model type can be dropped on it -->
+    <div class="map-block" [class.drop-target]="dropOn() === d.id" (dragover)="overMap($event, d)" (dragleave)="leave($event, d.id)" (drop)="dropOnMap($event, d)">
+    @if (tree.hasMapLines(g)) {
+      <!-- The map's own line, under its file: its name, and ✕ to remove it -->
+      <div class="map-head" [class.selected]="isSelected(d)" (click)="store.select({ docId: d.id, kind: 'document' })"
+        [title]="'The map ' + d.name() + ' in ' + d.fileLabel() + (d.readOnly() ? '' : '. Drag it onto another file to move it there')"
+        [attr.draggable]="!d.readOnly()" (dragstart)="dragMap($event, d)" (dragend)="dragEnd()">
+        <button class="icon twisty" [title]="tree.mapFolded(d) ? 'Unfold' : 'Fold'" [attr.aria-expanded]="!tree.mapFolded(d)" (click)="$event.stopPropagation(); tree.toggleMap(d)">{{ tree.mapFolded(d) ? '▸' : '▾' }}</button>
+        <span class="map-name">@for (p of tree.parts(d.name() ?? ''); track $index) {@if (p.match) {<mark>{{ p.text }}</mark>} @else {{{ p.text }}}}</span>
+        @if (d.newInFile()) { <span class="badge muted" title="Saving writes it into the file">new</span> }
+        @else if (d.dirty()) { <span class="dirty" title="Unsaved changes">●</span> }
+        @if (d.readOnly()) { <span class="badge muted" [title]="d.readOnly()!">read-only</span> }
+        <span class="spacer"></span>
+        @if (g.docs.length > 1) {
+          @if (tree.docCounts().get(d.id)?.errors; as errors) { <span class="badge error-badge">{{ errors }}</span> }
+        }
+        @if (d.newInFile()) {
+          <button class="icon" title="Remove this new map (it isn't in the file yet)" (click)="$event.stopPropagation(); store.removeNewMap(d.id)">✕</button>
+        } @else if (g.docs.length > 1) {
+          <button class="icon" title="Remove this map: it's deleted from the file when you save it" (click)="$event.stopPropagation(); store.removeMap(d.id)">✕</button>
+        }
+      </div>
+    }
+    @if (!tree.mapFolded(d)) {
+    @if (tree.wholeDoc(g, d)) {
+    <!-- The map's own settings: $schema (JSON), $comment and its global rules -->
+    <button class="nav-item sub" [class.selected]="isSelected(d)" (click)="store.select({ docId: d.id, kind: 'document' })">
+      <small>{{ d.format() === 'json' ? '$schema, $comment, global rules' : '$comment, global rules' }}</small>
+    </button>
+    }
+    <!-- Add a model type: first, so it's at hand in a long list; it stays while searching -->
+    @if (!d.readOnly()) {
+      <div class="add-row add-model">
+        <input [attr.list]="typesListId + '-' + d.id" placeholder="model type…" [title]="'Add a model type to ' + d.label()"
+          [value]="newModels()[d.id] ?? ''" (input)="setNewModel(d.id, $any($event.target).value)" (keydown.enter)="addModel(d.id)" />
+        <datalist [id]="typesListId + '-' + d.id">
+          @for (t of missingTypesOf(d); track t) { <option [value]="t"></option> }
+        </datalist>
+        <button (click)="addModel(d.id)" [disabled]="!(newModels()[d.id] ?? '').trim()">Add</button>
+      </div>
+    }
+    <!-- The model types, with what they extend and their error and warning counts -->
+    @for (m of tree.visibleModels(g, d); track m) {
+      <button class="nav-item sub" [class.selected]="isSelected(d, m)" (click)="store.select({ docId: d.id, kind: 'model', name: m })"
+        [attr.draggable]="!d.readOnly()" (dragstart)="dragModel($event, d, m)" (dragend)="dragEnd()"
+        [title]="d.readOnly() ? m : m + ': drag it onto another map to move it there (merged if that map has it too)'">
+        <span>@for (p of tree.parts(m); track $index) {@if (p.match) {<mark>{{ p.text }}</mark>} @else {{{ p.text }}}}</span>
+        @if (extendsOf(d, m); as parent) { <small>extends {{ parent }}</small> }
+        <span class="spacer"></span>
+        @if (tree.modelCounts().get(d.id + '/' + m); as c) {
+          @if (c.errors) { <span class="badge error-badge">{{ c.errors }}</span> }
+          @if (c.warnings) { <span class="badge warning-badge">{{ c.warnings }}</span> }
+        }
+      </button>
+    }
+    }
+    </div>
+    }
+    }
+    }
+  </div>
+  }
+} @empty {
+  <div class="hint">No metadata open. Open JSON files, or TypeScript or C# files that hold metadata, or start a new one.</div>
+}
+
+@if (tree.nothingMatches()) { <div class="hint">No model type, map or file matches “{{ tree.filter().trim() }}”. Esc clears the search.</div> }

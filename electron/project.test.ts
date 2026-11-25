@@ -1,10 +1,10 @@
-// Tests for project.cjs (node --test).
-const assert = require('node:assert/strict');
-const { describe, it } = require('node:test');
-const fs = require('node:fs/promises');
-const os = require('node:os');
-const path = require('node:path');
-const { expandPatterns, findProject, isPattern, isProjectFile, parseProject, patternBase, projectFileName, projectText, readProject, watchPatterns, writeProject } = require('./project.cjs');
+// Tests for project.ts (node --test, compiled to dist-electron/project.test.js; see scripts/test-main.mjs).
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { expandPatterns, findProject, isPattern, isProjectFile, parseProject, patternBase, projectFileName, projectText, readProject, watchPatterns, writeProject } from './project';
 
 describe('the project file', () => {
   const root = path.resolve('/work/temphire.server');
@@ -126,11 +126,11 @@ describe('the project file', () => {
     const dtos = path.join(dir, 'dtos');
     await fs.mkdir(dtos);
     await fs.writeFile(path.join(dtos, 'a.ts'), '');
-    const changes = [];
-    let notify;
+    const changes: string[][] = [];
+    let notify: (() => void) | undefined;
     const pattern = path.join(dtos, '*.ts');
     const stop = await watchPatterns([pattern], (matches) => { changes.push(matches[0].files); notify?.(); }, 100);
-    const next = () => new Promise((resolve, reject) => {
+    const next = () => new Promise<void>((resolve, reject) => {
       notify = resolve;
       setTimeout(() => reject(new Error('no change reported')), 5000);
     });

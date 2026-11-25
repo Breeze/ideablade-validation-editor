@@ -1,0 +1,24 @@
+/* The pattern editor's own look (CodeMirror's DOM) is in regex-editor-codemirror.ts. */
+:host { display: block; margin-top: 2px; }
+.regex-tools { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
+.regex-tools select { width: auto; max-width: 60%; }
+
+/* "What it matches" */
+.regex-explain { margin: 6px 0; font-size: 13px; }
+.regex-explain summary { cursor: pointer; color: var(--muted); }
+.regex-explain ol { margin: 4px 0 0; padding-left: 22px; }
+.regex-explain li { margin: 2px 0; overflow-wrap: anywhere; }
+.regex-explain code { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Values to try: two equal columns, each value with ✓ or ✗ and the matched parts marked */
+.regex-samples { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-top: 6px; }
+.regex-column { min-width: 0; }
+.regex-column textarea { min-height: 60px; }
+.regex-results { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.regex-result { display: flex; gap: 6px; align-items: baseline; font-size: 13px; padding: 1px 6px; border-radius: 3px; }
+.regex-result .mark { font-weight: 700; width: 12px; }
+.regex-result.ok .mark { color: var(--ok); }
+.regex-result.bad { background: var(--error-soft); }
+.regex-result.bad .mark { color: var(--error); }
+.regex-result code { background: none; padding: 0; white-space: pre-wrap; word-break: break-all; flex: 1; min-width: 0; }
+.regex-result mark { background: var(--accent-soft); color: var(--text); border-bottom: 2px solid var(--accent); border-radius: 2px; }

@@ -1,0 +1,26 @@
+<header app-toolbar></header>
+
+<!-- Three columns with splitters between them; their widths come from gridColumns() -->
+<div class="layout" [style.grid-template-columns]="gridColumns()">
+  <nav app-sidebar></nav>
+  <div class="splitter" title="Drag to make the sidebar wider or narrower (Esc while dragging cancels); double-click for its default width"
+    (pointerdown)="startResize('sidebar', $event)" (dblclick)="resetWidth('sidebar')"></div>
+
+  <!-- The main area: the start page, the selected model type, or the selected map's own settings -->
+  <main class="main">
+    @if (!store.active()) {
+      <app-start-page />
+    } @else if (selectedModel(); as name) {
+      @if (store.readOnly(); as reason) { <div class="banner">Read-only: {{ reason }}</div> }
+      <app-model-editor [name]="name" />
+    } @else {
+      <app-document-editor />
+    }
+  </main>
+  <div class="splitter" title="Drag to make this pane wider or narrower (Esc while dragging cancels); double-click for its default width"
+    (pointerdown)="startResize('side', $event)" (dblclick)="resetWidth('side')"></div>
+
+  <aside app-side-pane></aside>
+</div>
+
+<footer app-status-bar></footer>

@@ -81,7 +81,7 @@ export function camelCase(name: string): string {
 
 /**
  * Reads a model source. TypeScript files are parsed by the main process (the compiler needs Node; see
- * electron/typescript-models.cjs), which passes the models along with the text.
+ * electron/typescript-models.ts), which passes the models along with the text.
  */
 export function parseSource(
   path: string,

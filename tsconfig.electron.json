@@ -1,0 +1,20 @@
+/* The Electron main process and preload script (electron/*.ts), compiled to CommonJS in dist-electron/ for
+   Electron 45's Node 24: `npm run build:electron`. The Angular renderer has its own configs (tsconfig.app.json). */
+{
+  "compilerOptions": {
+    "target": "ES2024",
+    "lib": ["ES2024"],
+    "module": "node20",
+    "types": ["node"],
+    "rootDir": "electron",
+    "outDir": "dist-electron",
+    "strict": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "sourceMap": false
+  },
+  "include": ["electron/**/*.ts"]
+}

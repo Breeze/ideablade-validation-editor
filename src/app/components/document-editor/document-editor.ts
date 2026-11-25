@@ -1,184 +1,42 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 
-import { DEFAULT_SCHEMA_URL, type Json } from '../lib/doc';
-import { type TestResult, runTest, sampleFor } from '../lib/tester';
-import { schemaVersion } from '../generated/schema-validator';
-import { type DocIssue, EditorStore } from './editor-store';
-import { InlineIssues, commentText, commentValue } from './inline-issues';
-import { RuleList } from './rule-list';
+import { schemaVersion } from '../../../generated/schema-validator';
+import { DEFAULT_SCHEMA_URL, type Json } from '../../../lib/doc';
+import { EditorStore } from '../../services/editor-store';
+import { commentText, commentValue } from '../../shared/ids-and-comments';
+import { InlineIssues } from '../inline-issues/inline-issues';
+import { RuleList } from '../rule-list/rule-list';
+import { describeDocument } from './describe-document';
 
-/** Where and how a document is saved: a JSON file, or a map in a TS or C# file. */
-function describeDocument(format: string, path: string | undefined, name: string | undefined): string {
-  if (!path) return 'Not saved yet. Save as… writes it as JSON, TypeScript or C#, by the extension you choose.';
-  if (format === 'ts') return `The ModelValidationMetadataMap '${name}' in ${path}. Saving rewrites just that object; the rest of the file stays.`;
-  if (format === 'cs') return `The JSON string '${name}' in ${path}, for AddMetadataJson. Saving rewrites just that string; the rest of the file stays.`;
-  return path;
-}
-
-/** The document's own settings: `$schema` (JSON files), `$comment` and the global rules. */
+/**
+ * The main area when a document (rather than one of its model types) is selected: the active document's own settings.
+ * Shows where it's saved and why it may be read-only, and edits `$schema` (JSON files only: TS and C# maps don't have
+ * one), `$comment` and the global rules (`global.validators`, applied to every model type), in the EditorStore.
+ */
 @Component({
   selector: 'app-document-editor',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [InlineIssues, RuleList],
-  template: `
-    @if (store.active(); as d) {
-      <h2>{{ d.label() }}</h2>
-      <div class="hint">{{ where() }}</div>
-      @if (d.readOnly(); as reason) { <div class="banner">Read-only: {{ reason }}</div> }
-      @if (d.hasComments()) { <div class="banner warning">This object has comments inside it. Saving rewrites the object, so they would be lost (you'll be asked first). Use $comment for notes that should stay.</div> }
-      <section>
-        @if (d.format() === 'json') {
-          <label>$schema <small>(for editors; the loaders ignore it)</small>
-            <input class="code" [value]="schema()" (input)="set('$schema', $any($event.target).value || undefined)" />
-          </label>
-          <div class="hint">Checked here against the schema of ideablade-validation {{ schemaVersion }}.
-            @if (!schema()) { <button class="link" (click)="set('$schema', defaultSchema)">Add the schema URL</button> }
-          </div>
-        }
-        <label>$comment <small>(one paragraph per line)</small>
-          <textarea class="comment" rows="6" [value]="comment()" (change)="set('$comment', commentValue($any($event.target).value))"></textarea>
-        </label>
-        <app-inline-issues [path]="['$comment']" />
-      </section>
-      <section>
-        <div class="section-title">Global rules <small>(model-level rules for every model type, such as breeze)</small></div>
-        <app-rule-list [path]="['global', 'validators']" />
-        <app-inline-issues [path]="['global']" [exact]="true" />
-      </section>
-      <app-inline-issues [path]="[]" [exact]="true" />
-    }
-  `,
+  templateUrl: './document-editor.html',
+  styleUrl: './document-editor.css',
 })
 export class DocumentEditor {
   readonly store = inject(EditorStore);
+  /** The library version whose schema the editor checks against. */
   readonly schemaVersion = schemaVersion;
   readonly defaultSchema = DEFAULT_SCHEMA_URL;
   readonly commentValue = commentValue;
+  /** The document's `$schema`, or '' when it has none. */
   readonly schema = computed(() => (typeof this.store.doc()['$schema'] === 'string' ? (this.store.doc()['$schema'] as string) : ''));
   readonly comment = computed(() => commentText(this.store.doc()['$comment']));
+  /** Where and how the document is saved: see describeDocument(). */
   readonly where = computed(() => {
     const d = this.store.active();
     return d ? describeDocument(d.format(), d.path(), d.name()) : '';
   });
 
+  /** Sets one of the document's top-level keys; undefined removes it. */
   set(key: string, value: Json | undefined): void {
     this.store.update([key], value);
-  }
-}
-
-/** The issues of every open document, grouped by document. */
-@Component({
-  selector: 'app-issues-panel',
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `
-    @for (group of groups(); track group.id) {
-      @if (groups().length > 1) { <div class="issue-group">{{ group.label }}</div> }
-      @for (issue of group.issues; track $index) {
-        <button class="issue" [class]="issue.severity" (click)="store.focusIssue(issue)">
-          <span class="sev">{{ icon(issue) }}</span>
-          <span class="where">{{ where(issue) }}</span>
-          <span class="msg">{{ issue.message }}</span>
-          <span class="origin">{{ issue.origin }}</span>
-        </button>
-      }
-    } @empty {
-      <div class="empty ok">No issues: the schema and the library accept this metadata.</div>
-    }
-  `,
-})
-export class IssuesPanel {
-  readonly store = inject(EditorStore);
-  readonly groups = computed(() =>
-    this.store
-      .documents()
-      .map((d) => ({ id: d.id, label: d.label(), issues: this.store.allIssues().filter((i) => i.docId === d.id) }))
-      .filter((g) => g.issues.length > 0),
-  );
-  icon(issue: DocIssue): string {
-    return issue.severity === 'error' ? '✕' : issue.severity === 'warning' ? '!' : 'i';
-  }
-  where(issue: DocIssue): string {
-    return issue.path.map((p) => (typeof p === 'number' ? `[${p}]` : p)).join(' › ') || '(document)';
-  }
-}
-
-/** "Try it": validate a sample object with the library and all open metadata as it is now. */
-@Component({
-  selector: 'app-tester-panel',
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `
-    <div class="tester">
-      <label>Model type <small>(with the rules of every open document, merged)</small>
-        <select (change)="modelType.set($any($event.target).value)">
-          @for (t of store.metadataTypes(); track t) { <option [value]="t" [selected]="t === modelType()">{{ t }}</option> }
-        </select>
-      </label>
-      <label>Sample object <button class="link" (click)="fillSample()">fill from the model</button>
-        <textarea class="code" rows="10" spellcheck="false" [value]="sample()" (input)="sample.set($any($event.target).value)"></textarea>
-      </label>
-      <label>Store <small>(entities by type, for store('Type') in expressions)</small>
-        <textarea class="code" rows="3" spellcheck="false" [value]="storeText()" placeholder='{ "Address": [{ "staffingResourceId": 1 }] }' (input)="storeText.set($any($event.target).value)"></textarea>
-      </label>
-      <div class="add-row">
-        <button class="primary" (click)="run()">Validate</button>
-        <label class="check"><input type="checkbox" [checked]="auto()" (change)="auto.set($any($event.target).checked)" /> re-run on every change</label>
-      </div>
-      <div class="hint">Validators the editor doesn't have (breeze, the app's own) always pass here; async validators are not run.</div>
-      @if (result(); as r) {
-        @if (r.failure) {
-          <div class="inline-issue error">{{ r.failure }}</div>
-        } @else if (r.errors!.length === 0) {
-          <div class="empty ok">Valid: no errors.</div>
-        } @else {
-          <table class="results">
-            <tr><th>Key</th><th>Message</th><th>About</th></tr>
-            @for (e of r.errors; track $index) {
-              <tr><td><code>{{ e.key }}</code></td><td>{{ e.message }}</td><td>{{ e.propertyNames.join(', ') || '(model)' }}</td></tr>
-            }
-          </table>
-        }
-      }
-    </div>
-  `,
-})
-export class TesterPanel {
-  readonly store = inject(EditorStore);
-  readonly modelType = signal<string>('');
-  readonly sample = signal('{}');
-  readonly storeText = signal('');
-  readonly auto = signal(true);
-  readonly result = signal<TestResult | undefined>(undefined);
-
-  constructor() {
-    // Follow the model selected in the editor.
-    effect(() => {
-      const selection = this.store.selection();
-      if (selection?.kind === 'model' && selection.name !== untracked(this.modelType)) {
-        untracked(() => {
-          this.modelType.set(selection.name);
-          this.fillSample();
-          this.result.set(undefined);
-        });
-      }
-    });
-    effect(() => {
-      this.store.allDocs();
-      this.sample();
-      this.storeText();
-      this.store.settings();
-      this.store.catalog();
-      if (this.auto() && this.modelType()) untracked(() => this.run());
-    });
-  }
-
-  fillSample(): void {
-    const type = this.modelType();
-    this.sample.set(sampleFor(type, this.store.view(), this.store.catalog().get(type)));
-  }
-
-  run(): void {
-    this.result.set(
-      runTest(this.store.allDocs(), this.modelType(), this.sample(), this.storeText(), this.store.extraValidatorNames(), this.store.catalog()),
-    );
   }
 }

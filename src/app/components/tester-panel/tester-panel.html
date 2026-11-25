@@ -1,0 +1,35 @@
+<div class="tester">
+  <!-- What to validate: the model type, the sample object and the store -->
+  <label>Model type <small>(with the rules of every open document, merged)</small>
+    <select (change)="modelType.set($any($event.target).value)">
+      @for (t of store.metadataTypes(); track t) { <option [value]="t" [selected]="t === modelType()">{{ t }}</option> }
+    </select>
+  </label>
+  <label>Sample object <button class="link" (click)="fillSample()">fill from the model</button>
+    <textarea class="code" rows="10" spellcheck="false" [value]="sample()" (input)="sample.set($any($event.target).value)"></textarea>
+  </label>
+  <label>Store <small>(entities by type, for store('Type') in expressions)</small>
+    <textarea class="code" rows="3" spellcheck="false" [value]="storeText()" placeholder='{ "Address": [{ "staffingResourceId": 1 }] }' (input)="storeText.set($any($event.target).value)"></textarea>
+  </label>
+  <!-- Run it, now or on every change -->
+  <div class="add-row">
+    <button class="primary" (click)="run()">Validate</button>
+    <label class="check"><input type="checkbox" [checked]="auto()" (change)="auto.set($any($event.target).checked)" /> re-run on every change</label>
+  </div>
+  <div class="hint">Validators the editor doesn't have (breeze, the app's own) always pass here; async validators are not run.</div>
+  <!-- The result: why it couldn't run, valid, or a table of the errors -->
+  @if (result(); as r) {
+    @if (r.failure) {
+      <div class="inline-issue error">{{ r.failure }}</div>
+    } @else if (r.errors!.length === 0) {
+      <div class="empty ok">Valid: no errors.</div>
+    } @else {
+      <table class="results">
+        <tr><th>Key</th><th>Message</th><th>About</th></tr>
+        @for (e of r.errors; track $index) {
+          <tr><td><code>{{ e.key }}</code></td><td>{{ e.message }}</td><td>{{ e.propertyNames.join(', ') || '(model)' }}</td></tr>
+        }
+      </table>
+    }
+  }
+</div>

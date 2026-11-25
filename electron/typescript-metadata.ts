@@ -4,32 +4,57 @@
 //
 // Reading finds every such object literal (a variable typed as a validation metadata map, or one that `satisfies` it)
 // and turns it into JSON. Writing replaces just that object literal, so the imports, the doc comment and the rest of
-// the file stay as they are. Runs in the main process: the TypeScript compiler needs Node.
-const ts = require('typescript');
+// the file stay as they are. Runs in the main process: the TypeScript compiler needs Node. The renderer reaches these
+// through the `ts:*` IPC handlers in main.ts; its view of the result is `TsMetadata` in src/app/services/host.ts.
+import ts from 'typescript';
 
+/** A JSON value, as the metadata maps hold them. */
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+/** A JSON object: a metadata map, or a part of one. */
+export type JsonObject = { [key: string]: JsonValue };
+
+/** A metadata map found in a TypeScript file. */
+export interface TsMetadata {
+  name: string;
+  json: JsonObject;
+  /** Why the editor can't edit it, for a map with code in it (a spread, a reference to a variable...). */
+  readOnly?: string;
+  /** Comments inside the literal, which rewriting it would drop. */
+  hasComments: boolean;
+}
+
+/** A metadata map's declaration: its variable's name, the object literal, and the declaration (for removing it). */
+interface FoundMetadata {
+  name: string;
+  literal: ts.ObjectLiteralExpression;
+  declaration: ts.VariableDeclaration;
+}
+
+/** The type names that mark a variable as a metadata map. */
 const METADATA_TYPE = /\b(ModelValidationMetadataMap|ModelValidationMetadataLike)\b/;
 
-function createSourceFile(text, fileName) {
+/** The file parsed (no type checking: only its syntax is needed), as TSX when its name ends in x. */
+function createSourceFile(text: string, fileName: string): ts.SourceFile {
   return ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, /x$/i.test(fileName) ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
 }
 
 /** `x as const`, `(x)`, `x satisfies T`: the expression inside. */
-function unwrap(node) {
-  while (node && (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node) || ts.isTypeAssertionExpression(node))) {
+function unwrap(node: ts.Expression): ts.Expression {
+  while (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node) || ts.isTypeAssertionExpression(node)) {
     node = node.expression;
   }
   return node;
 }
 
 /** The metadata object literals in a file, by variable name. */
-function findMetadata(sf) {
-  const found = [];
-  const visit = (node) => {
+function findMetadata(sf: ts.SourceFile): FoundMetadata[] {
+  const found: FoundMetadata[] = [];
+  const visit = (node: ts.Node): void => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      const typed = node.type && METADATA_TYPE.test(node.type.getText(sf));
+      const typed = !!node.type && METADATA_TYPE.test(node.type.getText(sf));
       const satisfies = ts.isSatisfiesExpression(node.initializer) && METADATA_TYPE.test(node.initializer.type.getText(sf));
       const literal = unwrap(node.initializer);
-      if ((typed || satisfies) && literal && ts.isObjectLiteralExpression(literal)) {
+      if ((typed || satisfies) && ts.isObjectLiteralExpression(literal)) {
         found.push({ name: node.name.text, literal, declaration: node });
       }
     }
@@ -39,24 +64,25 @@ function findMetadata(sf) {
   return found;
 }
 
+/** Code where the editor needs a plain value: the message says what and where, for the read-only note. */
 class NotLiteral extends Error {
-  constructor(node, sf, what) {
+  constructor(node: ts.Node, sf: ts.SourceFile, what: string) {
     const { line, character } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
     super(`${what} at line ${line + 1}, column ${character + 1}: ${node.getText(sf).slice(0, 60)}`);
   }
 }
 
 /** The JSON value of a literal expression; anything else (identifiers, spreads, calls) can't be edited as data. */
-function toJson(node, sf) {
-  node = unwrap(node);
+function toJson(expression: ts.Expression, sf: ts.SourceFile): JsonValue {
+  const node = unwrap(expression);
   if (ts.isObjectLiteralExpression(node)) {
-    const result = {};
+    const result: JsonObject = {};
     for (const p of node.properties) {
       if (ts.isSpreadAssignment(p)) throw new NotLiteral(p, sf, 'A spread');
       if (ts.isShorthandPropertyAssignment(p)) throw new NotLiteral(p, sf, 'A reference to a variable');
       if (!ts.isPropertyAssignment(p)) throw new NotLiteral(p, sf, 'A method or accessor');
       const name = p.name;
-      let key;
+      let key: string;
       if (ts.isIdentifier(name) || ts.isPrivateIdentifier(name)) key = name.text;
       else if (ts.isStringLiteral(name) || ts.isNumericLiteral(name) || ts.isNoSubstitutionTemplateLiteral(name)) key = name.text;
       else throw new NotLiteral(p, sf, 'A computed key');
@@ -80,7 +106,7 @@ function toJson(node, sf) {
 }
 
 /** True when the literal has comments inside it, which rewriting it would drop. */
-function hasCommentsInside(literal, sf) {
+function hasCommentsInside(literal: ts.Node, sf: ts.SourceFile): boolean {
   const text = sf.text;
   const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.Standard, text, undefined, literal.getStart(sf), literal.getEnd() - literal.getStart(sf));
   for (let kind = scanner.scan(); kind !== ts.SyntaxKind.EndOfFileToken; kind = scanner.scan()) {
@@ -93,14 +119,14 @@ function hasCommentsInside(literal, sf) {
  * The metadata maps in a TypeScript file: `[{ name, json }]`, or `{ name, readOnly }` (with the reason) for one that
  * holds code the editor can't turn into data and back, such as a spread of another map.
  */
-function readTsMetadata(text, fileName = 'metadata.ts') {
+export function readTsMetadata(text: string, fileName = 'metadata.ts'): TsMetadata[] {
   const sf = createSourceFile(text, fileName);
   return findMetadata(sf).map(({ name, literal }) => {
     const hasComments = hasCommentsInside(literal, sf);
     try {
-      return { name, json: toJson(literal, sf), hasComments };
+      return { name, json: toJson(literal, sf) as JsonObject, hasComments };
     } catch (e) {
-      return { name, json: {}, readOnly: `${e.message}. The editor only edits plain values.`, hasComments };
+      return { name, json: {}, readOnly: `${(e as Error).message}. The editor only edits plain values.`, hasComments };
     }
   });
 }
@@ -111,15 +137,18 @@ function readTsMetadata(text, fileName = 'metadata.ts') {
 const PRINT_WIDTH = 100;
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
 
-function quote(s) {
+/** A string as a single-quoted TypeScript literal. */
+function quote(s: string): string {
   return `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')}'`;
 }
 
-function key(k) {
+/** A property name: bare when it's an identifier, else quoted. */
+function key(k: string): string {
   return IDENTIFIER.test(k) ? k : quote(k);
 }
 
-function inline(value) {
+/** A value on one line: `{ a: 1, b: [2, 3] }`. */
+function inline(value: JsonValue): string {
   if (value === null || typeof value !== 'object') return typeof value === 'string' ? quote(value) : String(value);
   if (Array.isArray(value)) return `[${value.map(inline).join(', ')}]`;
   const entries = Object.entries(value);
@@ -130,7 +159,7 @@ function inline(value) {
  * A value as TypeScript source. `column` is where it starts, for the line width; `indent` the indentation of its line.
  * The map itself, its models and their `properties` are always one entry per line, as one would write them.
  */
-function format(value, indent, column, depth, parentKey) {
+function format(value: JsonValue, indent: string, column: number, depth: number, parentKey: string | undefined): string {
   if (value === null || typeof value !== 'object') return inline(value);
   const flat = inline(value);
   const forceMultiline = depth <= 1 || parentKey === 'properties' || parentKey === 'global' || parentKey === '$comment';
@@ -149,13 +178,14 @@ function format(value, indent, column, depth, parentKey) {
   return `{\n${lines.join('\n')}\n${indent}}`;
 }
 
-function lineIndent(text, position) {
+/** The indentation (spaces and tabs) of the line `position` is on. */
+function lineIndent(text: string, position: number): string {
   const lineStart = text.lastIndexOf('\n', position - 1) + 1;
-  return /^[ \t]*/.exec(text.slice(lineStart))[0];
+  return /^[ \t]*/.exec(text.slice(lineStart))![0];
 }
 
 /** The file with the metadata map `name` replaced by `json`. Everything outside that object literal is kept. */
-function writeTsMetadata(text, fileName, name, json) {
+export function writeTsMetadata(text: string, fileName: string, name: string, json: JsonObject): string {
   const sf = createSourceFile(text, fileName);
   const found = findMetadata(sf).find((m) => m.name === name);
   if (!found) throw new Error(`There is no metadata map '${name}' in ${fileName} any more.`);
@@ -174,12 +204,12 @@ const METADATA_IMPORT = `import type { ModelValidationMetadataMap } from 'ideabl
  * The file with `ModelValidationMetadataMap` imported, so the map's type annotation compiles: added above the first
  * import (or at the top) when no import brings it in. A file that imports it already is left as it is.
  */
-function withMetadataImport(text, fileName) {
+function withMetadataImport(text: string, fileName: string): string {
   const sf = createSourceFile(text, fileName);
   const imports = sf.statements.filter(ts.isImportDeclaration);
   const hasIt = imports.some((d) => {
     const bindings = d.importClause?.namedBindings;
-    return bindings && ts.isNamedImports(bindings) && bindings.elements.some((e) => e.name.text === 'ModelValidationMetadataMap');
+    return !!bindings && ts.isNamedImports(bindings) && bindings.elements.some((e) => e.name.text === 'ModelValidationMetadataMap');
   });
   if (hasIt) return text;
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
@@ -189,9 +219,10 @@ function withMetadataImport(text, fileName) {
 
 /**
  * The file with another metadata map, `name`, holding `json`: an exported, typed constant added at the end, in the
- * file's line endings, with the type's import added if the file lacks it.
+ * file's line endings, with the type's import added if the file lacks it. Refuses a name that isn't an identifier or
+ * that the file already uses.
  */
-function insertTsMetadata(text, fileName, name, json) {
+export function insertTsMetadata(text: string, fileName: string, name: string, json: JsonObject): string {
   if (!/^[A-Za-z_$][\w$]*$/.test(name)) throw new Error(`'${name}' isn't a TypeScript name: letters, digits, _ and $, not starting with a digit.`);
   if (new RegExp(`(^|[^\\w$])${name.replace(/\$/g, '\\$')}($|[^\\w$])`).test(text)) throw new Error(`The file already uses the name '${name}'.`);
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
@@ -205,13 +236,14 @@ function insertTsMetadata(text, fileName, name, json) {
  * The file without the metadata map `name`: its whole statement goes (`export const name: … = { … };`), with the doc
  * comment above it and the blank line after it. The rest of the file is kept as it is.
  */
-function removeTsMetadata(text, fileName, name) {
+export function removeTsMetadata(text: string, fileName: string, name: string): string {
   const sf = createSourceFile(text, fileName);
   const found = findMetadata(sf).find((m) => m.name === name);
   if (!found) throw new Error(`There is no metadata map '${name}' in ${fileName} any more.`);
-  let statement = found.declaration;
-  while (statement && !ts.isVariableStatement(statement)) statement = statement.parent;
-  if (!statement) throw new Error(`The map '${name}' isn't declared on its own in ${fileName}.`);
+  let node: ts.Node | undefined = found.declaration;
+  while (node && !ts.isVariableStatement(node)) node = node.parent;
+  if (!node) throw new Error(`The map '${name}' isn't declared on its own in ${fileName}.`);
+  const statement = node as ts.VariableStatement;
   if (statement.declarationList.declarations.length > 1) {
     throw new Error(`'${name}' is declared together with other variables in ${fileName}: remove it there.`);
   }
@@ -227,12 +259,13 @@ function removeTsMetadata(text, fileName, name) {
   return (text.slice(0, from) + text.slice(to)).replace(/\s+$/, '') + eol;
 }
 
-/** A new TypeScript file holding one metadata map, typed, with the type's import. */
-function newTsMetadataFile(name, json) {
+/** A new TypeScript file holding one metadata map, typed, with the type's import (File → New → TypeScript). */
+export function newTsMetadataFile(name: string, json: JsonObject): string {
   return (
     `${METADATA_IMPORT}\n\n` +
     `export const ${name}: ModelValidationMetadataMap = ${format(json, '', 0, 0, undefined)};\n`
   );
 }
 
-module.exports = { readTsMetadata, writeTsMetadata, insertTsMetadata, removeTsMetadata, newTsMetadataFile, formatTs: (json) => format(json, '', 0, 0, undefined) };
+/** A metadata map as the object literal the writers produce, starting at column 0. */
+export const formatTs = (json: JsonObject): string => format(json, '', 0, 0, undefined);

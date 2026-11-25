@@ -1,0 +1,16 @@
+<div class="nav-title">Metadata <span class="count">{{ store.documents().length }}</span>
+  @if (store.documents().length) {
+    <span class="spacer"></span>
+    <button class="link fold-all" title="Fold every file and map down to its name" (click)="tree.collapseAll()">Collapse all</button>
+    <button class="link fold-all" title="Unfold every file and map" (click)="tree.expandAll()">Expand all</button>
+  }
+</div>
+@if (store.documents().length) {
+  <!-- The search: model types whose names contain the text, and maps or files whose names do (shown in full) -->
+  <div class="sidebar-search">
+    <input #search type="search" placeholder="Find model types and maps…" title="Ctrl+Shift+F. Enter opens the first match, Esc clears it."
+      aria-label="Find model types and maps" [value]="tree.filter()" (input)="tree.setFilter($any($event.target).value)"
+      (keydown.escape)="clearFilter($event)" (keydown.enter)="tree.openFirstMatch()" />
+    @if (tree.filtering()) { <span class="search-count" title="Model types that match, of all">{{ tree.matchCount() }} of {{ tree.modelTotal() }}</span> }
+  </div>
+}

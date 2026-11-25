@@ -1,10 +1,10 @@
-// Tests for window-state.cjs (node --test).
-const assert = require('node:assert/strict');
-const { describe, it } = require('node:test');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const {
+// Tests for window-state.ts (node --test, compiled to dist-electron/window-state.test.js; see scripts/test-main.mjs).
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {
   loadWindowState,
   isVisible,
   getSelection,
@@ -21,7 +21,7 @@ const {
   getLayout,
   setLayout,
   DEFAULT_WINDOW_SIZE,
-} = require('./window-state.cjs');
+} from './window-state';
 
 const screens = [
   { workArea: { x: 0, y: 0, width: 1920, height: 1040 } },
@@ -30,7 +30,7 @@ const screens = [
 
 describe('the window state', () => {
   const file = path.join(os.tmpdir(), `vews-${process.pid}.json`);
-  const save = (state) => fs.writeFileSync(file, JSON.stringify(state));
+  const save = (state: object) => fs.writeFileSync(file, JSON.stringify(state));
 
   it('opens at the saved size and position, maximised if it was', () => {
     save({ x: 2000, y: 100, width: 1600, height: 1000, maximized: true });

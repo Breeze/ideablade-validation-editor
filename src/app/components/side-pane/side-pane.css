@@ -1,0 +1,6 @@
+/* The tabs on top, the tab's content filling the rest of the height (the code view scrolls itself). */
+:host { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--panel); }
+.tabs { display: flex; border-bottom: 1px solid var(--border); }
+.tabs button { border: none; border-radius: 0; border-bottom: 2px solid transparent; padding: 7px 14px; background: transparent; display: flex; gap: 6px; align-items: center; }
+.tabs button.active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
+.pane { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }

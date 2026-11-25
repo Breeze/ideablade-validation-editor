@@ -11,7 +11,7 @@
     "url": "https://github.com/Breeze/ideablade-validation-editor.git"
   },
   "author": "IdeaBlade",
-  "main": "electron/main.cjs",
+  "main": "dist-electron/main.js",
   "engines": {
     "node": ">=26.13"
   },
@@ -19,13 +19,14 @@
     "ng": "ng",
     "prebuild": "node scripts/build-schema-validator.mjs",
     "build": "ng build",
-    "start": "npm run build && electron .",
-    "dev": "node scripts/build-schema-validator.mjs && node scripts/dev.mjs",
-    "test": "node scripts/build-schema-validator.mjs && ng test --watch=false && node scripts/test-main.mjs",
-    "dist": "npm run build && electron-builder --win nsis",
-    "dist:dir": "npm run build && electron-builder --win dir",
-    "dist:mac": "npm run build && electron-builder --mac dmg --x64 --arm64",
-    "dist:linux": "npm run build && electron-builder --linux AppImage deb",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "start": "npm run build && npm run build:electron && electron .",
+    "dev": "node scripts/build-schema-validator.mjs && npm run build:electron && node scripts/dev.mjs",
+    "test": "node scripts/build-schema-validator.mjs && ng test --watch=false && npm run build:electron && node scripts/test-main.mjs",
+    "dist": "npm run build && npm run build:electron && electron-builder --win nsis",
+    "dist:dir": "npm run build && npm run build:electron && electron-builder --win dir",
+    "dist:mac": "npm run build && npm run build:electron && electron-builder --mac dmg --x64 --arm64",
+    "dist:linux": "npm run build && npm run build:electron && electron-builder --linux AppImage deb",
     "icon": "electron scripts/build-icon.cjs"
   },
   "dependencies": {
@@ -52,6 +53,7 @@
     "@codemirror/view": "^6.43.15",
     "@eslint-community/regexpp": "^4.12.3",
     "@lezer/highlight": "^1.2.5",
+    "@types/node": "^24.19.2",
     "ajv": "^8.20.0",
     "electron": "^45.4.1",
     "electron-builder": "^26.18.0",
@@ -70,8 +72,8 @@
     },
     "files": [
       "dist/**/*",
-      "electron/**/*",
-      "!electron/**/*.test.cjs",
+      "dist-electron/**/*",
+      "!dist-electron/**/*.test.js",
       "package.json",
       "build/icon.ico",
       "build/icon.png"

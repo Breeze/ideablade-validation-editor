@@ -1,0 +1,15 @@
+@for (group of groups(); track group.id) {
+  <!-- The document's name, only when more than one document has issues -->
+  @if (groups().length > 1) { <div class="issue-group">{{ group.label }}</div> }
+  <!-- One button per issue: severity, path, message and which check found it -->
+  @for (issue of group.issues; track $index) {
+    <button class="issue" [class]="issue.severity" (click)="store.focusIssue(issue)">
+      <span class="sev">{{ icon(issue) }}</span>
+      <span class="where">{{ where(issue) }}</span>
+      <span class="msg">{{ issue.message }}</span>
+      <span class="origin">{{ issue.origin }}</span>
+    </button>
+  }
+} @empty {
+  <div class="empty ok">No issues: the schema and the library accept this metadata.</div>
+}

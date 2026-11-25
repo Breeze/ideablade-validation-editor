@@ -1,0 +1,24 @@
+@if (store.active(); as d) {
+  <!-- TS and C# documents: switch between the file as saving writes it and the JSON, with a note on each -->
+  @if (d.format() !== 'json') {
+    <div class="view-switch">
+      <button [class.active]="mode() === 'file'" (click)="mode.set('file')">{{ d.format() === 'ts' ? 'TypeScript' : 'C#' }}</button>
+      <button [class.active]="mode() === 'json'" (click)="mode.set('json')">JSON</button>
+      <span class="view-note">
+        @if (shown() !== 'json') {
+          {{ d.fileLabel() }} as saving writes it, with your changes. Read-only here: edit the rules in the forms or as JSON.
+        } @else {
+          {{ d.path() ? d.name() : d.label() }} as JSON, which you can edit. It's saved as {{ d.format() === 'ts' ? 'a TypeScript object' : 'a C# JSON string' }}.
+        }
+      </span>
+    </div>
+  }
+  @if (d.readOnly()) { <div class="json-note">Read-only: {{ d.readOnly() }}</div> }
+}
+<!-- CodeMirror is created in the host element; it's hidden rather than removed while no document is open, so the
+     editor survives. -->
+<div #host class="json-host" [hidden]="!store.active()"></div>
+<!-- Text that doesn't parse stays in the editor but isn't applied -->
+@if (store.invalidText(); as invalid) {
+  <div class="json-error">Not applied, the JSON doesn't parse: {{ invalid.error }}</div>
+}

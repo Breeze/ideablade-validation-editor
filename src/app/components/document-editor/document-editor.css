@@ -1,0 +1,3 @@
+h2 { margin: 0 0 8px; font-size: 20px; }
+/* The settings and the global rules are each a panel. (The model editor has its own copy of this rule.) */
+section { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px 10px; margin: 10px 0; }

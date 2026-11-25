@@ -1,0 +1,6 @@
+/* The sidebar: the project, the Metadata heading and the search pinned at the top, the sources and settings pinned
+   at the bottom (scrolling on their own beyond 45% of the height), and the files and maps scrolling in between. */
+:host { display: flex; flex-direction: column; min-height: 0; overflow: hidden; background: var(--sidebar-bg); }
+.sidebar-top { flex: none; padding: 8px 8px 0; }
+.sidebar-list { flex: 1 1 0; min-height: 60px; overflow-y: auto; padding: 0 8px 8px; }
+.sidebar-bottom { flex: 0 0 auto; max-height: 45%; overflow-y: auto; padding: 0 8px 8px; border-top: 1px solid var(--border); }

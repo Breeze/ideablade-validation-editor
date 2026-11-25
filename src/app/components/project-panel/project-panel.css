@@ -1,0 +1,6 @@
+/* display: contents: the parts lay out as children of the sidebar's top section, as if this element weren't there. */
+:host { display: contents; }
+/* The first heading in the sidebar sits closer to the top than the others. */
+.nav-title:first-child { margin-top: 6px; }
+.project { display: flex; align-items: center; gap: 6px; padding: 4px 6px; font-weight: 600; }
+.doc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }

@@ -1,5 +1,5 @@
 // The colour theme: dark (the default, as in VS Code), light, or whatever Windows uses. styles.css has the colours;
-// this sets `data-theme` on <html>. Electron's native theme follows the same setting (electron/main.cjs), so the
+// this sets `data-theme` on <html>. Electron's native theme follows the same setting (electron/main.ts), so the
 // window frame, menus and dialogs match, and with 'system' prefers-color-scheme reflects Windows.
 
 export type ThemeSetting = 'dark' | 'light' | 'system';

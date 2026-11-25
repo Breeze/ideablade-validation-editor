@@ -1,0 +1,29 @@
+<!-- New: a small menu of the formats a new metadata file can have -->
+<span class="menu-button">
+  <button (click)="newMenuOpen.set(!newMenuOpen())" (blur)="closeNewMenuSoon()" [class.open]="newMenuOpen()" title="A new metadata file: JSON, TypeScript or C#">New ▾</button>
+  @if (newMenuOpen()) {
+    <span class="menu">
+      @for (f of newFormats; track f.format) {
+        <!-- mousedown's default would move the focus and close the menu before the click lands -->
+        <button (mousedown)="$event.preventDefault()" (click)="newFile(f.format)" [title]="f.hint">{{ f.label }}</button>
+      }
+    </span>
+  }
+</span>
+
+<!-- Files -->
+<button (click)="store.open()" title="Ctrl+O: JSON, TypeScript or C# files">Open…</button>
+<button (click)="store.save()" title="Ctrl+S" [disabled]="!store.active()" [class.primary]="saveIsPrimary()">Save</button>
+<button (click)="store.saveAs()" title="Ctrl+Shift+S: as JSON, TypeScript or C#" [disabled]="!store.active()">Save as…</button>
+<button (click)="store.saveAll()" title="Ctrl+Alt+S" [disabled]="!store.dirty()">Save all</button>
+<button (click)="store.discardAll()" title="Discard all unsaved changes: the files are read again from disk (asks first)" [disabled]="!store.dirty()">Discard all</button>
+<span class="sep"></span>
+
+<!-- Sources: the models, validators and functions the forms offer -->
+<button (click)="store.addSources()" title="Ctrl+M: Breeze metadata, TS or C# files">Add source…</button>
+<button (click)="store.addSourceFolder()" title="Ctrl+Shift+M: the TS and C# files in a folder and its subfolders, as a pattern; new files are picked up as they appear">Add folder…</button>
+<button (click)="store.reloadSources()" [disabled]="!store.sources().length" title="F5">Reload sources</button>
+<span class="spacer"></span>
+
+<!-- The selected document's file, cut off at the start when it's long (direction: rtl) -->
+<span class="file" [title]="store.filePath() ?? ''">{{ store.filePath() ?? (store.active() ? 'Not saved yet' : '') }}</span>

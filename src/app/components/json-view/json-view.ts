@@ -1,92 +1,15 @@
 import { ChangeDetectionStrategy, Component, ElementRef, afterNextRender, computed, effect, inject, signal, untracked, viewChild, type OnDestroy } from '@angular/core';
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-import { javascript } from '@codemirror/lang-javascript';
-import { json, jsonParseLinter } from '@codemirror/lang-json';
-import { HighlightStyle, StreamLanguage, bracketMatching, foldGutter, foldKeymap, indentOnInput, indentUnit, syntaxHighlighting } from '@codemirror/language';
-import { linter } from '@codemirror/lint';
+import { bracketMatching, foldGutter, foldKeymap, indentOnInput, indentUnit, syntaxHighlighting } from '@codemirror/language';
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search';
-import { Annotation, Compartment, EditorState, Transaction, type ChangeSpec } from '@codemirror/state';
+import { Compartment, EditorState, Transaction } from '@codemirror/state';
 import { EditorView, drawSelection, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers } from '@codemirror/view';
-import { csharp } from '@codemirror/legacy-modes/mode/clike';
-import { tags } from '@lezer/highlight';
 
-import { lineOfPath } from '../lib/doc';
-import { EditorStore, type MetadataDocument } from './editor-store';
-
-// VS Code's colours, from the theme (styles.css: --syn-*): for JSON keys, strings, numbers, true/false/null; for TS and
-// C# also keywords, types and comments.
-const highlight = HighlightStyle.define([
-  { tag: [tags.keyword, tags.modifier, tags.definitionKeyword, tags.controlKeyword, tags.moduleKeyword], color: 'var(--syn-keyword)' },
-  { tag: [tags.typeName, tags.className, tags.namespace], color: 'var(--syn-type)' },
-  { tag: [tags.comment, tags.lineComment, tags.blockComment], color: 'var(--syn-comment)' },
-  { tag: [tags.variableName, tags.definition(tags.variableName)], color: 'var(--syn-variable)' },
-  { tag: tags.propertyName, color: 'var(--syn-property)' },
-  { tag: tags.string, color: 'var(--syn-string)' },
-  { tag: tags.number, color: 'var(--syn-number)' },
-  { tag: [tags.bool, tags.null], color: 'var(--syn-keyword)' },
-  { tag: [tags.brace, tags.squareBracket, tags.separator, tags.punctuation], color: 'var(--syn-operator)' },
-]);
-
-const theme = EditorView.theme({
-  '&': { flex: '1', minHeight: '0', background: 'var(--bg)', color: 'var(--text)', fontSize: '13px' },
-  '&.cm-focused': { outline: 'none' },
-  '.cm-scroller': { fontFamily: 'var(--mono)', lineHeight: '19px', fontVariantLigatures: 'none' },
-  '.cm-content': { caretColor: 'var(--text)', padding: '6px 0' },
-  '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--text)' },
-  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': { background: 'var(--selection) !important' },
-  '.cm-gutters': { background: 'var(--bg)', color: 'var(--muted)', border: 'none' },
-  '.cm-activeLine': { background: 'var(--line)' },
-  '.cm-activeLineGutter': { background: 'var(--line)', color: 'var(--text)' },
-  '.cm-foldGutter .cm-gutterElement': { cursor: 'pointer', padding: '0 4px' },
-  '.cm-foldPlaceholder': { background: 'var(--line-strong)', border: 'none', color: 'var(--muted)' },
-  '&.cm-focused .cm-matchingBracket': { background: 'var(--line-strong)', outline: '1px solid var(--muted)' },
-  '.cm-selectionMatch': { background: 'var(--line-strong)' },
-  '.cm-searchMatch': { background: 'var(--warning-soft)', outline: '1px solid var(--warning)' },
-  '.cm-searchMatch.cm-searchMatch-selected': { background: 'var(--accent-soft)' },
-  // The search panel (Ctrl+F), in the app's colours. The app's own styles make inputs 100% wide and labels columns,
-  // so the panel's fields, buttons and checkboxes get their sizes back here.
-  '.cm-panels': { background: 'var(--panel)', color: 'var(--text)' },
-  '.cm-panels.cm-panels-top': { borderBottom: '1px solid var(--border)' },
-  '.cm-panel.cm-search': { fontSize: '13px', padding: '6px 28px 6px 8px', lineHeight: '28px' },
-  '.cm-panel.cm-search .cm-textfield': {
-    width: '15em', fontSize: '13px', padding: '2px 6px', margin: '0 6px 0 0', verticalAlign: 'middle',
-    background: 'var(--input-bg)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: '4px',
-  },
-  '.cm-panel.cm-search .cm-textfield:focus': { outline: '2px solid var(--accent-soft)', borderColor: 'var(--accent)' },
-  '.cm-panel.cm-search .cm-button': {
-    backgroundImage: 'none', background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: '4px',
-    color: 'var(--text)', fontSize: '13px', padding: '1px 8px', margin: '0 4px 0 0', verticalAlign: 'middle', textTransform: 'none',
-  },
-  '.cm-panel.cm-search .cm-button:hover': { borderColor: 'var(--accent)' },
-  '.cm-panel.cm-search label': { display: 'inline-flex', flexDirection: 'row', alignItems: 'center', gap: '4px', margin: '0 10px 0 4px', fontSize: '13px', color: 'var(--text)', verticalAlign: 'middle' },
-  '.cm-panel.cm-search input[type=checkbox]': { width: 'auto', margin: '0' },
-  '.cm-panel.cm-search [name=close]': { color: 'var(--muted)', fontSize: '18px', top: '4px', right: '8px' },
-  '.cm-tooltip': { background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)' },
-  '.cm-diagnostic-error': { borderLeftColor: 'var(--error)' },
-});
-
-/** What the view shows: the document as JSON (editable), or its TS or C# file as saving writes it (read-only). */
-type Shown = 'json' | 'ts' | 'cs';
-
-function languageFor(shown: Shown) {
-  if (shown === 'ts') return [javascript({ typescript: true })];
-  if (shown === 'cs') return [StreamLanguage.define(csharp)];
-  return [json(), linter(jsonParseLinter(), { delay: 300 })];
-}
-
-/** Marks the transactions that bring the store's text in, so they aren't sent back to it as edits. */
-const fromStore = Annotation.define<boolean>();
-
-/** The change from `before` to `after` without what they share at the start and end, so the view keeps its place. */
-function minimalChange(before: string, after: string): ChangeSpec {
-  let start = 0;
-  const max = Math.min(before.length, after.length);
-  while (start < max && before.charCodeAt(start) === after.charCodeAt(start)) start++;
-  let end = 0;
-  while (end < max - start && before.charCodeAt(before.length - 1 - end) === after.charCodeAt(after.length - 1 - end)) end++;
-  return { from: start, to: before.length - end, insert: after.slice(start, after.length - end) };
-}
+import { lineOfPath } from '../../../lib/doc';
+import { EditorStore } from '../../services/editor-store';
+import type { MetadataDocument } from '../../services/metadata-document';
+import { type Shown, fromStore, jsonHighlight, jsonTheme, languageFor, minimalChange, readOnlyExtensions } from './json-view-codemirror';
 
 /**
  * The selected document's JSON, kept in step with the forms in both directions. For a map in a TS or C# file it shows
@@ -96,49 +19,35 @@ function minimalChange(before: string, after: string): ChangeSpec {
  * closing brackets and quotes are added, matching brackets shown, objects and arrays fold, Ctrl+F searches, and a
  * syntax error is underlined where the parser stops. Text that doesn't parse isn't applied; the forms keep the last
  * valid state.
+ *
+ * Shown in the side pane, beside the forms. Edits to the JSON go to the active document through
+ * `EditorStore.setJsonText`; clicking an issue (`EditorStore.focusPath`) scrolls to and selects its line.
  */
 @Component({
   selector: 'app-json-view',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `
-    @if (store.active(); as d) {
-      @if (d.format() !== 'json') {
-        <div class="view-switch">
-          <button [class.active]="mode() === 'file'" (click)="mode.set('file')">{{ d.format() === 'ts' ? 'TypeScript' : 'C#' }}</button>
-          <button [class.active]="mode() === 'json'" (click)="mode.set('json')">JSON</button>
-          <span class="view-note">
-            @if (shown() !== 'json') {
-              {{ d.fileLabel() }} as saving writes it, with your changes. Read-only here: edit the rules in the forms or as JSON.
-            } @else {
-              {{ d.path() ? d.name() : d.label() }} as JSON, which you can edit. It's saved as {{ d.format() === 'ts' ? 'a TypeScript object' : 'a C# JSON string' }}.
-            }
-          </span>
-        </div>
-      }
-      @if (d.readOnly()) { <div class="json-note">Read-only: {{ d.readOnly() }}</div> }
-    }
-    <div #host class="json-host" [hidden]="!store.active()"></div>
-    @if (store.invalidText(); as invalid) {
-      <div class="json-error">Not applied, the JSON doesn't parse: {{ invalid.error }}</div>
-    }
-  `,
+  templateUrl: './json-view.html',
+  styleUrl: './json-view.css',
 })
 export class JsonView implements OnDestroy {
   readonly store = inject(EditorStore);
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
   /** For TS and C# documents: their file (the default) or their JSON. */
   readonly mode = signal<'file' | 'json'>('file');
+  /** What the editor shows now: JSON documents always show JSON; TS and C# maps show their file or their JSON. */
   readonly shown = computed<Shown>(() => {
     const format = this.store.active()?.format();
     return format === 'ts' || format === 'cs' ? (this.mode() === 'file' ? format : 'json') : 'json';
   });
   /** The TS or C# file as saving writes it, worked out a moment after each change (TS is written in the main process). */
   private readonly fileText = signal<{ docId: string; text: string } | undefined>(undefined);
+  /** The text to show: the JSON (or the text that didn't parse, so it isn't lost while being fixed), or the file. */
   readonly text = computed(() => {
     if (this.shown() === 'json') return this.store.invalidText()?.text ?? this.store.jsonText();
     const file = this.fileText();
     return file && file.docId === this.store.active()?.id ? file.text : '';
   });
+  /** The CodeMirror editor, once created: a signal, so the effects below run again when it appears. */
   private readonly view = signal<EditorView | undefined>(undefined);
   private readonly readOnly = new Compartment();
   /** What the editor shows (document and view): another gets a fresh editor state, so undo doesn't cross them. */
@@ -147,6 +56,7 @@ export class JsonView implements OnDestroy {
   private handledFocus?: unknown;
 
   constructor() {
+    // CodeMirror needs the host element, so it's created once the template has rendered.
     afterNextRender(() => {
       this.shownKey = untracked(this.key);
       this.view.set(
@@ -186,9 +96,11 @@ export class JsonView implements OnDestroy {
     });
   }
 
+  /** Read-only when the document is (see MetadataDocument.readOnly) or when a TS or C# file is shown. */
   private readonly isReadOnly = computed(() => !!this.store.active()?.readOnly() || this.shown() !== 'json');
   private readonly key = computed(() => `${this.store.active()?.id}:${this.shown()}`);
 
+  /** Asks the store for the TS or C# file as saving would write it; an error is shown as a comment in its place. */
   private async refreshFile(doc: MetadataDocument): Promise<void> {
     try {
       const text = await this.store.fileText(doc);
@@ -198,6 +110,10 @@ export class JsonView implements OnDestroy {
     }
   }
 
+  /**
+   * Brings the editor in line with the text: a fresh state for something else shown, else just the changed part
+   * (marked fromStore and kept out of undo), and the read-only switch.
+   */
   private sync(view: EditorView, text: string, readOnly: boolean): void {
     const key = this.key();
     if (key !== this.shownKey) {
@@ -214,6 +130,7 @@ export class JsonView implements OnDestroy {
     }
   }
 
+  /** A new editor state with the text: line numbers, folding, search, the language of what's shown and so on. */
   private createState(text: string, readOnly: boolean, shown: Shown): EditorState {
     return EditorState.create({
       doc: text,
@@ -230,12 +147,13 @@ export class JsonView implements OnDestroy {
         highlightSelectionMatches(),
         search({ top: true }),
         ...languageFor(shown),
-        syntaxHighlighting(highlight),
+        syntaxHighlighting(jsonHighlight),
         EditorState.tabSize.of(2),
         indentUnit.of('  '),
         keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
         this.readOnly.of(readOnlyExtensions(readOnly)),
-        theme,
+        jsonTheme,
+        // Edits typed here (not the store's own text coming in) go to the store, for JSON only: files are read-only.
         EditorView.updateListener.of((update) => {
           if (shown === 'json' && update.docChanged && !update.transactions.some((t) => t.annotation(fromStore))) {
             this.store.setJsonText(update.state.doc.toString());
@@ -248,8 +166,4 @@ export class JsonView implements OnDestroy {
   ngOnDestroy(): void {
     this.view()?.destroy();
   }
-}
-
-function readOnlyExtensions(readOnly: boolean) {
-  return [EditorState.readOnly.of(readOnly)];
 }

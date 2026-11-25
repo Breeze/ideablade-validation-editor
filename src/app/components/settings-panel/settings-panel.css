@@ -1,0 +1,3 @@
+/* display: contents: the settings lay out as children of the sidebar's bottom section. */
+:host { display: contents; }
+.setting { margin: 4px; }

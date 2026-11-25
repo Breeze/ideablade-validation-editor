@@ -1,0 +1,49 @@
+<!-- The card's head, always shown: click it to fold or unfold the card. -->
+<div class="property-head" (click)="open.set(!open())">
+  <span class="twisty">{{ open() ? '▾' : '▸' }}</span>
+  <span class="property-name">{{ name() }}</span>
+  @if (source(); as s) { <span class="type" [title]="s.notes?.join(', ') ?? ''">{{ s.type }}{{ s.nullable ? '?' : '' }}</span> }
+  @if (entry().from) { <span class="badge">from {{ entry().from }}</span> }
+  @if (entry().required) { <span class="badge">required</span> }
+  @if (entry().minLength != null) { <span class="badge">min {{ entry().minLength }}</span> }
+  @if (entry().maxLength != null) { <span class="badge">max {{ entry().maxLength }}</span> }
+  <span class="summary">{{ ruleCount() }}</span>
+  @if (errorCount()) { <span class="badge error-badge">{{ errorCount() }} ✕</span> }
+  @if (warningCount()) { <span class="badge warning-badge">{{ warningCount() }} !</span> }
+  <span class="spacer"></span>
+  <!-- stopPropagation: removing shouldn't also fold or unfold the card. -->
+  <button class="icon danger" title="Remove property" (click)="$event.stopPropagation(); remove()">✕</button>
+</div>
+@if (!open()) {
+  <!-- Closed: just the issues about the property itself; its rules' issues show once it's open. -->
+  <app-inline-issues [path]="path()" [exact]="true" />
+} @else {
+  <div class="property-body">
+    <!-- Name and display name -->
+    <div class="row">
+      <label>Name <input [value]="name()" (change)="rename($any($event.target).value)" /></label>
+      <label>Display name <input [value]="entry().displayName ?? ''" placeholder="used as %displayName%" (input)="set('displayName', $any($event.target).value || undefined)" /></label>
+    </div>
+    <!-- The shorthands. maxLength's placeholder shows the model source's length, if it has one. -->
+    <div class="row">
+      <label class="check"><input type="checkbox" [checked]="!!entry().required" (change)="set('required', $any($event.target).checked || undefined)" /> required</label>
+      <label>minLength <input type="number" min="0" [value]="entry().minLength ?? ''" (change)="setNumber('minLength', $any($event.target).value)" /></label>
+      <label>maxLength <input type="number" min="0" [value]="entry().maxLength ?? ''" [placeholder]="source()?.maxLength != null ? 'source: ' + source()!.maxLength : ''" (change)="setNumber('maxLength', $any($event.target).value)" /></label>
+    </div>
+    <!-- from: inherit another property's rules -->
+    <label>From <small>(inherit another model's property rules: Type, or Type.property)</small>
+      <input [attr.list]="fromListId" [value]="entry().from ?? ''" (input)="set('from', $any($event.target).value || undefined)" />
+      <datalist [id]="fromListId">
+        @for (option of fromOptions(); track option) { <option [value]="option"></option> }
+      </datalist>
+    </label>
+    <app-inline-issues [path]="at('from')" />
+    <label>$comment
+      <textarea class="comment" rows="1" [value]="comment()" (change)="set('$comment', commentValue($any($event.target).value))"></textarea>
+    </label>
+    <!-- The property's rules -->
+    <div class="section-title">Rules</div>
+    <app-rule-list [path]="at('validators')" [modelType]="modelType()" [propertyName]="name()" />
+    <app-inline-issues [path]="path()" [exact]="true" />
+  </div>
+}

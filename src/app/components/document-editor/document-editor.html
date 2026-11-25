@@ -1,0 +1,30 @@
+@if (store.active(); as d) {
+  <!-- The document's name, where it's saved, and why it can't be edited or may lose comments -->
+  <h2>{{ d.label() }}</h2>
+  <div class="hint">{{ where() }}</div>
+  @if (d.readOnly(); as reason) { <div class="banner">Read-only: {{ reason }}</div> }
+  @if (d.hasComments()) { <div class="banner warning">This object has comments inside it. Saving rewrites the object, so they would be lost (you'll be asked first). Use $comment for notes that should stay.</div> }
+  <!-- $schema (JSON files only) and $comment -->
+  <section>
+    @if (d.format() === 'json') {
+      <label>$schema <small>(for editors; the loaders ignore it)</small>
+        <input class="code" [value]="schema()" (input)="set('$schema', $any($event.target).value || undefined)" />
+      </label>
+      <div class="hint">Checked here against the schema of ideablade-validation {{ schemaVersion }}.
+        @if (!schema()) { <button class="link" (click)="set('$schema', defaultSchema)">Add the schema URL</button> }
+      </div>
+    }
+    <label>$comment <small>(one paragraph per line)</small>
+      <textarea class="comment" rows="6" [value]="comment()" (change)="set('$comment', commentValue($any($event.target).value))"></textarea>
+    </label>
+    <app-inline-issues [path]="['$comment']" />
+  </section>
+  <!-- The global rules -->
+  <section>
+    <div class="section-title">Global rules <small>(model-level rules for every model type, such as breeze)</small></div>
+    <app-rule-list [path]="['global', 'validators']" />
+    <app-inline-issues [path]="['global']" [exact]="true" />
+  </section>
+  <!-- Issues about the document as a whole -->
+  <app-inline-issues [path]="[]" [exact]="true" />
+}

@@ -1,81 +1,53 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 
-import { type Json, type ModelEntry, type Path, type PropertyEntry, isPlainObject, renameKey } from '../lib/doc';
-import { fileName } from '../lib/sources';
-import { EditorStore } from './editor-store';
-import { InlineIssues, commentText, commentValue, uniqueId } from './inline-issues';
-import { RuleList } from './rule-list';
-import { ExpressionInput } from './expression-input';
-import type { ExpressionSite } from '../lib/completion';
+import { type Json, type Path, type PropertyEntry, isPlainObject, renameKey } from '../../../lib/doc';
+import { EditorStore } from '../../services/editor-store';
+import { commentText, commentValue, uniqueId } from '../../shared/ids-and-comments';
+import { InlineIssues } from '../inline-issues/inline-issues';
+import { RuleList } from '../rule-list/rule-list';
 
-/** One property entry: from, displayName, the shorthands, its rules. */
+/**
+ * One property of a model type (`<Model>.properties.<name>` in the metadata), as a card in the model editor's
+ * Properties section. Closed, it's a one-line summary (the type from the model sources, the shorthands, the number of
+ * rules and of issues); open, it edits the property's name, `displayName`, the `required`/`minLength`/`maxLength`
+ * shorthands, `from`, `$comment` and its rules (`validators`, through a rule list). All edits go to the active
+ * document in the EditorStore.
+ */
 @Component({
   selector: 'app-property-editor',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [InlineIssues, RuleList],
+  // The `open` class gives the open card its stronger border and background (see the CSS).
   host: { class: 'property', '[class.open]': 'open()' },
-  template: `
-    <div class="property-head" (click)="open.set(!open())">
-      <span class="twisty">{{ open() ? '▾' : '▸' }}</span>
-      <span class="property-name">{{ name() }}</span>
-      @if (source(); as s) { <span class="type" [title]="s.notes?.join(', ') ?? ''">{{ s.type }}{{ s.nullable ? '?' : '' }}</span> }
-      @if (entry().from) { <span class="badge">from {{ entry().from }}</span> }
-      @if (entry().required) { <span class="badge">required</span> }
-      @if (entry().minLength != null) { <span class="badge">min {{ entry().minLength }}</span> }
-      @if (entry().maxLength != null) { <span class="badge">max {{ entry().maxLength }}</span> }
-      <span class="summary">{{ ruleCount() }}</span>
-      @if (errorCount()) { <span class="badge error-badge">{{ errorCount() }} ✕</span> }
-      @if (warningCount()) { <span class="badge warning-badge">{{ warningCount() }} !</span> }
-      <span class="spacer"></span>
-      <button class="icon danger" title="Remove property" (click)="$event.stopPropagation(); remove()">✕</button>
-    </div>
-    @if (!open()) {
-      <app-inline-issues [path]="path()" [exact]="true" />
-    } @else {
-      <div class="property-body">
-        <div class="row">
-          <label>Name <input [value]="name()" (change)="rename($any($event.target).value)" /></label>
-          <label>Display name <input [value]="entry().displayName ?? ''" placeholder="used as %displayName%" (input)="set('displayName', $any($event.target).value || undefined)" /></label>
-        </div>
-        <div class="row">
-          <label class="check"><input type="checkbox" [checked]="!!entry().required" (change)="set('required', $any($event.target).checked || undefined)" /> required</label>
-          <label>minLength <input type="number" min="0" [value]="entry().minLength ?? ''" (change)="setNumber('minLength', $any($event.target).value)" /></label>
-          <label>maxLength <input type="number" min="0" [value]="entry().maxLength ?? ''" [placeholder]="source()?.maxLength != null ? 'source: ' + source()!.maxLength : ''" (change)="setNumber('maxLength', $any($event.target).value)" /></label>
-        </div>
-        <label>From <small>(inherit another model's property rules: Type, or Type.property)</small>
-          <input [attr.list]="fromListId" [value]="entry().from ?? ''" (input)="set('from', $any($event.target).value || undefined)" />
-          <datalist [id]="fromListId">
-            @for (option of fromOptions(); track option) { <option [value]="option"></option> }
-          </datalist>
-        </label>
-        <app-inline-issues [path]="at('from')" />
-        <label>$comment
-          <textarea class="comment" rows="1" [value]="comment()" (change)="set('$comment', commentValue($any($event.target).value))"></textarea>
-        </label>
-        <div class="section-title">Rules</div>
-        <app-rule-list [path]="at('validators')" [modelType]="modelType()" [propertyName]="name()" />
-        <app-inline-issues [path]="path()" [exact]="true" />
-      </div>
-    }
-  `,
+  templateUrl: './property-editor.html',
+  styleUrl: './property-editor.css',
 })
 export class PropertyEditor {
   private readonly store = inject(EditorStore);
+  /** The model type the property belongs to. */
   readonly modelType = input.required<string>();
+  /** The property's name: its key in the model's `properties`. */
   readonly name = input.required<string>();
+  /** Whether the card is unfolded. It starts closed, so a long list of properties stays easy to scan. */
   readonly open = signal(false);
   readonly fromListId = uniqueId('from');
   readonly commentValue = commentValue;
 
+  /** Where the property is in the document. */
   readonly path = computed<Path>(() => [this.modelType(), 'properties', this.name()]);
+  /** The property's entry, or an empty one while it isn't (or is no longer) in the document. */
   readonly entry = computed(() => (this.store.get(this.path()) ?? {}) as PropertyEntry);
   readonly comment = computed(() => commentText(this.entry().$comment));
+  /** The property as the model sources describe it (type, nullable, maxLength), if they have it. */
   readonly source = computed(() => this.store.catalog().get(this.modelType())?.properties.find((p) => p.name === this.name()));
+  /** "3 rules" for the closed card, or nothing when there are none. */
   readonly ruleCount = computed(() => {
     const n = Array.isArray(this.entry().validators) ? this.entry().validators!.length : 0;
     return n ? `${n} rule${n === 1 ? '' : 's'}` : '';
   });
+  /** Errors at or below the property, so a closed card still shows that something inside it needs fixing. */
   readonly errorCount = computed(() => this.store.issuesAt(this.path()).filter((i) => i.severity === 'error').length);
+  /** Warnings at or below the property, as for errorCount. */
   readonly warningCount = computed(() => this.store.issuesAt(this.path()).filter((i) => i.severity === 'warning').length);
 
   /** "Type" where Type has a property of this name, then "Type.property" for every other known property. */
@@ -94,18 +66,25 @@ export class PropertyEditor {
     return [...options, ...others];
   });
 
+  /** A path below the property, e.g. `at('validators')`. */
   at(...keys: (string | number)[]): Path {
     return [...this.path(), ...keys];
   }
 
+  /** Sets one of the property's keys; undefined removes it. */
   set(key: string, value: Json | undefined): void {
     this.store.update(this.at(key), value);
   }
 
+  /** For the number inputs: an empty field removes the key rather than storing 0. */
   setNumber(key: string, text: string): void {
     this.set(key, text.trim() === '' ? undefined : Number(text));
   }
 
+  /**
+   * Renames the property where it is (its place among the properties stays). Does nothing when the new name is empty
+   * or already taken.
+   */
   rename(to: string): void {
     to = to.trim();
     const propertiesPath: Path = [this.modelType(), 'properties'];
@@ -117,107 +96,8 @@ export class PropertyEditor {
     this.store.moveRegexTests((k) => (k === from || k.startsWith(from + '@') ? `${this.modelType()}.${to}${k.slice(from.length)}` : undefined));
   }
 
+  /** Removes the property, with all its rules, from the model. */
   remove(): void {
     this.store.update(this.path(), undefined);
-  }
-}
-
-/** A model type: its settings, model-level rules and properties. */
-@Component({
-  selector: 'app-model-editor',
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [InlineIssues, RuleList, PropertyEditor, ExpressionInput],
-  template: `
-    <div class="model-head">
-      <input class="model-name" [value]="name()" (change)="store.renameModel(name(), $any($event.target).value)" title="Model type name" />
-      @if (catalogModel(); as m) {
-        <span class="badge source-badge" [title]="m.sources.join('\n')">{{ m.kinds.join(', ') }} · {{ sourceNames() }}</span>
-      } @else if (store.sources().length) {
-        <span class="badge muted" title="Not in any model source">no model source</span>
-      }
-      <span class="spacer"></span>
-      <button class="danger" (click)="store.removeModel(name())">Remove model</button>
-    </div>
-    <app-inline-issues [path]="[name()]" [exact]="true" />
-
-    <section>
-      <div class="row">
-        <label>Extends <small>(inherit all of another model's rules)</small>
-          <input [attr.list]="typesListId" [value]="entry().extends ?? ''" (input)="set('extends', $any($event.target).value || undefined)" />
-        </label>
-        <datalist [id]="typesListId">
-          @for (t of otherTypes(); track t) { <option [value]="t"></option> }
-        </datalist>
-      </div>
-      <app-inline-issues [path]="at('extends')" />
-      <div class="field">
-        <span class="field-label">Condition <small>(entity store validation skips models where this is falsy)</small></span>
-        <app-expression-input [value]="entry().condition ?? ''" [site]="conditionSite()" placeholder="e.g. !model.isTerminated"
-          (changed)="set('condition', $event || undefined)" />
-      </div>
-      <app-inline-issues [path]="at('condition')" />
-      <label>$comment
-        <textarea class="comment" rows="2" [value]="comment()" (change)="set('$comment', commentValue($any($event.target).value))"></textarea>
-      </label>
-    </section>
-
-    <section>
-      <div class="section-title">Model-level rules <small>(they get the whole model; propertyNames say which fields an error is about)</small></div>
-      <app-rule-list [path]="at('validators')" [modelType]="name()" />
-    </section>
-
-    <section>
-      <div class="section-title">Properties</div>
-      @for (p of propertyNames(); track p) {
-        <app-property-editor [modelType]="name()" [name]="p" />
-      } @empty {
-        <div class="empty">No properties with rules yet.</div>
-      }
-      <div class="add-row">
-        <input [attr.list]="propsListId" placeholder="property…" [value]="newProperty()" (input)="newProperty.set($any($event.target).value)" (keydown.enter)="addProperty()" />
-        <datalist [id]="propsListId">
-          @for (p of availableProperties(); track p.name) { <option [value]="p.name">{{ p.type }}</option> }
-        </datalist>
-        <button (click)="addProperty()" [disabled]="!newProperty().trim()">Add property</button>
-        @if (availableProperties().length) {
-          <span class="hint">{{ availableProperties().length }} more in {{ sourceNames() }}</span>
-        }
-      </div>
-    </section>
-  `,
-})
-export class ModelEditor {
-  readonly store = inject(EditorStore);
-  readonly name = input.required<string>();
-  readonly newProperty = signal('');
-  readonly typesListId = uniqueId('types');
-  readonly propsListId = uniqueId('props');
-  readonly commentValue = commentValue;
-
-  readonly entry = computed(() => (this.store.get([this.name()]) ?? {}) as ModelEntry);
-  readonly comment = computed(() => commentText(this.entry().$comment));
-  readonly propertyNames = computed(() => (isPlainObject(this.entry().properties) ? Object.keys(this.entry().properties!) : []));
-  readonly catalogModel = computed(() => this.store.catalog().get(this.name()));
-  readonly sourceNames = computed(() => this.catalogModel()?.sources.map(fileName).join(', ') ?? '');
-  readonly otherTypes = computed(() => this.store.allModelTypes().filter((t) => t !== this.name()));
-  readonly conditionSite = computed<ExpressionSite>(() => ({ kind: 'modelCondition', modelType: this.name() }));
-  readonly availableProperties = computed(() => {
-    const present = new Set(this.propertyNames());
-    return (this.catalogModel()?.properties ?? []).filter((p) => !present.has(p.name) && !p.navigation);
-  });
-
-  at(...keys: (string | number)[]): Path {
-    return [this.name(), ...keys];
-  }
-
-  set(key: string, value: Json | undefined): void {
-    this.store.update(this.at(key), value);
-  }
-
-  addProperty(): void {
-    const name = this.newProperty().trim();
-    if (!name) return;
-    if (!this.propertyNames().includes(name)) this.store.update(this.at('properties', name), {});
-    this.newProperty.set('');
   }
 }

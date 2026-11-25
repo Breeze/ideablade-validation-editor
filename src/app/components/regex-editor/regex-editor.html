@@ -1,0 +1,55 @@
+<!-- The pattern (CodeMirror is created in here), its syntax error and its hints, some with a fix -->
+<div #host class="regex-input"></div>
+@if (analysis().error; as error) {
+  <div class="inline-issue error">{{ error.message }} (at position {{ error.index + 1 }})</div>
+}
+@for (hint of analysis().hints; track $index) {
+  <div class="inline-issue" [class]="hint.severity">
+    {{ hint.message }}
+    @if (hint.fix; as fix) { <button class="link" (click)="apply(fix.pattern)">{{ fix.label }}</button> }
+  </div>
+}
+
+<!-- Common patterns to start from. The select goes back to its label after each choice, so it works like a menu. -->
+<div class="regex-tools">
+  <select (change)="useCommon($any($event.target).value); $any($event.target).value = ''">
+    <option value="">Start from a common pattern…</option>
+    @for (p of common; track p.label) {
+      <option [value]="p.pattern">{{ p.label }}{{ p.builtIn ? ' (built-in: ' + p.builtIn + ')' : '' }}</option>
+    }
+  </select>
+  @if (commonNote()) { <small>{{ commonNote() }}</small> }
+</div>
+
+<!-- The whole pattern explained, step by step -->
+@if (analysis().steps.length) {
+  <details class="regex-explain" open>
+    <summary>What it matches</summary>
+    <ol>
+      @for (step of analysis().steps; track $index) {
+        <li><code>{{ step.raw }}</code> {{ step.explanation }}</li>
+      }
+    </ol>
+  </details>
+}
+
+<!-- Values to try, in two columns (should pass, should fail), each value with its result and the matched parts marked -->
+<div class="hint">{{ whereKept() }}</div>
+<div class="regex-samples">
+  @for (column of columns; track column.kind) {
+    <div class="regex-column">
+      <span class="field-label">{{ column.title }} <small>(one value per line)</small></span>
+      <textarea class="code" rows="3" spellcheck="false" [value]="lines(column.kind).join('\n')" [placeholder]="column.placeholder"
+        (input)="setLines(column.kind, $any($event.target).value)"></textarea>
+      <div class="regex-results">
+        @for (r of results()[column.kind]; track $index) {
+          <div class="regex-result" [class.ok]="r.ok" [class.bad]="!r.ok" [title]="r.ok ? 'As expected' : column.kind === 'shouldPass' ? 'Should pass, but fails' : 'Should fail, but passes'">
+            <span class="mark">{{ r.ok ? '✓' : '✗' }}</span>
+            <code>@for (part of r.parts; track $index) {@if (part.match) {<mark>{{ part.text }}</mark>} @else {{{ part.text }}}}@if (!r.parts.length) {<em>(empty: passes, as empty values do)</em>}</code>
+            <small>{{ r.passes ? 'passes' : 'fails' }}</small>
+          </div>
+        }
+      </div>
+    </div>
+  }
+</div>

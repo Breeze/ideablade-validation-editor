@@ -122,7 +122,7 @@ The `samples/` folder has TempHire's validation metadata and its Breeze metadata
 npm test
 ```
 
-Unit tests (Vitest, through Angular's test builder) cover the Breeze and C# readers, metadata in C#, the checks on TempHire's metadata, completion, and the tester. The main process's code (metadata in TypeScript, the project file) is tested with Node's test runner on **Electron's own Node** (24.22 in Electron 45), because that's what it runs on in the app, whatever `.node-version` says: `.node-version` only picks the Node that builds the app and runs the tooling.
+Unit tests (Vitest, through Angular's test builder) cover the Breeze and C# readers, metadata in C#, the checks on TempHire's metadata, completion, and the tester. The main process's code (metadata in TypeScript, the project file, the window state) is tested by `electron/*.test.ts`, compiled with the rest of the main process and run with Node's test runner on **Electron's own Node** (24.22 in Electron 45), because that's what it runs on in the app, whatever `.node-version` says: `.node-version` only picks the Node that builds the app and runs the tooling.
 
 ## Packaging
 
@@ -169,11 +169,16 @@ The Release workflow then checks that the tag matches `package.json`'s version (
 
 ## How it's built, and why
 
-- **Electron**, for a desktop app that opens and saves files and watches the model sources. The main process (`electron/main.cjs`) owns the file system: dialogs, reading, saving, `fs.watch`, and reading TypeScript files, since the TypeScript compiler needs Node. The renderer is sandboxed with context isolation and gets a small API through `electron/preload.cjs`.
-- **Angular 22** (standalone components, signals, zoneless) for the UI. All state is in one signal store (`src/app/editor-store.ts`): the document is the parsed JSON itself, and every edit replaces it immutably. The JSON text, the issues and the model catalog are `computed`s of it, so the forms, the JSON view and the checks can't get out of step.
+- **Electron**, for a desktop app that opens and saves files and watches the model sources. The main process (`electron/main.ts`) owns the file system: dialogs, reading, saving, `fs.watch`, and reading TypeScript files, since the TypeScript compiler needs Node. The renderer is sandboxed with context isolation and gets a small API through `electron/preload.ts`, which `src/app/services/host.ts` describes for the renderer. The main process is TypeScript too, compiled by `tsc -p tsconfig.electron.json` (`npm run build:electron`) into `dist-electron/`, which is what Electron and the installers run; `npm start`, `npm run dev`, `npm test` and the `dist` scripts compile it first.
+- **Angular 22** (standalone components, signals, zoneless) for the UI. All state is in one signal store (`src/app/services/editor-store.ts`): the document is the parsed JSON itself, and every edit replaces it immutably. The JSON text, the issues and the model catalog are `computed`s of it, so the forms, the JSON view and the checks can't get out of step. The code under `src/app/`:
+  - `app.ts` (with `app.html`, `app.css`): the shell. The window's layout and splitters, the menu's commands, startup.
+  - `components/`: one folder per component, each with its `.ts`, `.html` and `.css`. The shell's parts (toolbar, sidebar with project panel, metadata search and list, sources list and settings, start page, right pane, status bar) and the editors (model, property, rule list and rule, regular expression, expression field, the document's settings, JSON view, issues, Try it).
+  - `services/`: the store, one open map (`metadata-document.ts`), the sidebar's grouping, folding and search (`metadata-tree.ts`), the bridge to the main process (`host.ts`) and the theme.
+  - `shared/`: small helpers more than one component uses.
+  - Styles: `src/styles.css` has the theme's colours and what all components share (buttons, inputs, badges, headings); each component's own styles are in its `.css`, scoped to it.
 - **The library itself** (`ideablade-validation` from npm) does the checks the schema can't do and runs the tester. The editor uses the same code the apps run, so it agrees with them.
 - **Ajv** checks the schema. The validator is precompiled at build time (`scripts/build-schema-validator.mjs`, into `src/generated/`), so the app's Content-Security-Policy needs no `unsafe-eval`.
-- The editor's own logic is plain TypeScript in `src/lib/` and doesn't depend on Angular: the document helpers, the validator catalog, the source readers, metadata in C#, expression completion, the checks and the tester. Metadata in TypeScript is read and written in `electron/typescript-metadata.cjs`, in the main process, with the TypeScript compiler. Expression fields, the pattern field and the JSON view use CodeMirror 6.
+- The editor's own logic is plain TypeScript in `src/lib/` and doesn't depend on Angular: the document helpers, the validator catalog, the source readers, metadata in C#, expression completion, the checks and the tester. Metadata in TypeScript is read and written in `electron/typescript-metadata.ts`, in the main process, with the TypeScript compiler. Expression fields, the pattern field and the JSON view use CodeMirror 6.
 
 ## Limitations of this first drop
 

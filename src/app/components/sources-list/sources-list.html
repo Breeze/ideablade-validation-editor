@@ -1,0 +1,53 @@
+<div class="nav-title">Sources <span class="count">{{ store.sources().length }}</span></div>
+
+<!-- Folders, as patterns: one line each, folded by default -->
+@for (p of store.sourcePatterns(); track p.pattern) {
+  <div class="source pattern" [title]="p.pattern">
+    <button class="icon twisty" [title]="patternOpen(p.pattern) ? 'Fold' : 'Show its files'" [attr.aria-expanded]="patternOpen(p.pattern)" (click)="togglePattern(p.pattern)">{{ patternOpen(p.pattern) ? '▾' : '▸' }}</button>
+    <span class="badge kind">Folder</span>
+    <span class="pattern-count">{{ p.files.length }} {{ p.files.length === 1 ? 'file' : 'files' }}{{ patternErrors(p) ? ', ' + patternErrors(p) + ' not read' : '' }} · watched</span>
+    <span class="spacer"></span>
+    <button class="icon" title="Change the pattern" (click)="editPattern(p.pattern)">✎</button>
+    <button class="icon" title="Remove the pattern and the sources it matched" (click)="store.removePattern(p.pattern)">✕</button>
+    <!-- The pattern itself, on a line of its own; a text field while it's being changed -->
+    @if (editingPattern() === p.pattern) {
+      <input class="pattern-input" [value]="store.patternLabel(p.pattern)" (keydown.enter)="commitPattern(p.pattern, $any($event.target).value)"
+        (keydown.escape)="editingPattern.set(undefined)" (blur)="commitPattern(p.pattern, $any($event.target).value)" />
+    } @else {
+      <div class="pattern-text" title="Its files are sources, and new ones are picked up as they appear. Double-click to change it." (dblclick)="editPattern(p.pattern)">{{ store.patternLabel(p.pattern) }}</div>
+    }
+  </div>
+  <!-- Unfolded: the files it matched (no ✕: change the pattern instead) -->
+  @if (patternOpen(p.pattern)) {
+    @for (s of patternSources(p); track s.path) {
+      <div class="source in-pattern" [class.failed]="!!s.error" [title]="s.path">
+        <span class="badge kind">{{ kindLabel(s) }}</span>
+        <span class="source-name">{{ fileName(s.path) }}</span>
+        <div class="source-detail">
+          @if (s.error) { <span class="error-text">{{ s.error }}</span> }
+          @else { {{ sourceSummary(s) }} · read {{ time(s.loadedAt) }} · watched }
+        </div>
+      </div>
+    } @empty {
+      <div class="hint in-pattern">No files match yet. They're added as they appear.</div>
+    }
+  }
+}
+
+<!-- Files added one by one -->
+@for (s of looseSources(); track s.path) {
+  <div class="source" [class.failed]="!!s.error" [title]="s.path">
+    <span class="badge kind">{{ kindLabel(s) }}</span>
+    <span class="source-name">{{ fileName(s.path) }}</span>
+    <span class="spacer"></span>
+    <button class="icon" title="Remove source" (click)="store.removeSource(s.path)">✕</button>
+    <div class="source-detail">
+      @if (s.error) { <span class="error-text">{{ s.error }}</span> }
+      @else { {{ sourceSummary(s) }} · read {{ time(s.loadedAt) }} · watched }
+    </div>
+  </div>
+} @empty {
+  @if (!store.sourcePatterns().length) {
+  <div class="hint">Add Breeze metadata, or TypeScript / C# files with view models, DTOs and the app's own validators and expression functions, to pick them from lists. They're re-read when they change. Add folder takes a folder's TS and C# files, and picks up new ones as they appear.</div>
+  }
+}

@@ -1,0 +1,60 @@
+<!-- The head: the model's name (edited in place), where the model sources have it, and Remove. -->
+<div class="model-head">
+  <input class="model-name" [value]="name()" (change)="store.renameModel(name(), $any($event.target).value)" title="Model type name" />
+  @if (catalogModel(); as m) {
+    <span class="badge source-badge" [title]="m.sources.join('\n')">{{ m.kinds.join(', ') }} · {{ sourceNames() }}</span>
+  } @else if (store.sources().length) {
+    <span class="badge muted" title="Not in any model source">no model source</span>
+  }
+  <span class="spacer"></span>
+  <button class="danger" (click)="store.removeModel(name())">Remove model</button>
+</div>
+<app-inline-issues [path]="[name()]" [exact]="true" />
+
+<!-- The model's settings: extends, condition, $comment -->
+<section>
+  <div class="row">
+    <label>Extends <small>(inherit all of another model's rules)</small>
+      <input [attr.list]="typesListId" [value]="entry().extends ?? ''" (input)="set('extends', $any($event.target).value || undefined)" />
+    </label>
+    <datalist [id]="typesListId">
+      @for (t of otherTypes(); track t) { <option [value]="t"></option> }
+    </datalist>
+  </div>
+  <app-inline-issues [path]="at('extends')" />
+  <div class="field">
+    <span class="field-label">Condition <small>(entity store validation skips models where this is falsy)</small></span>
+    <app-expression-input [value]="entry().condition ?? ''" [site]="conditionSite()" placeholder="e.g. !model.isTerminated"
+      (changed)="set('condition', $event || undefined)" />
+  </div>
+  <app-inline-issues [path]="at('condition')" />
+  <label>$comment
+    <textarea class="comment" rows="2" [value]="comment()" (change)="set('$comment', commentValue($any($event.target).value))"></textarea>
+  </label>
+</section>
+
+<!-- Model-level rules -->
+<section>
+  <div class="section-title">Model-level rules <small>(they get the whole model; propertyNames say which fields an error is about)</small></div>
+  <app-rule-list [path]="at('validators')" [modelType]="name()" />
+</section>
+
+<!-- The properties, and a field to add one (suggesting the model sources' properties that have no entry yet) -->
+<section>
+  <div class="section-title">Properties</div>
+  @for (p of propertyNames(); track p) {
+    <app-property-editor [modelType]="name()" [name]="p" />
+  } @empty {
+    <div class="empty">No properties with rules yet.</div>
+  }
+  <div class="add-row">
+    <input [attr.list]="propsListId" placeholder="property…" [value]="newProperty()" (input)="newProperty.set($any($event.target).value)" (keydown.enter)="addProperty()" />
+    <datalist [id]="propsListId">
+      @for (p of availableProperties(); track p.name) { <option [value]="p.name">{{ p.type }}</option> }
+    </datalist>
+    <button (click)="addProperty()" [disabled]="!newProperty().trim()">Add property</button>
+    @if (availableProperties().length) {
+      <span class="hint">{{ availableProperties().length }} more in {{ sourceNames() }}</span>
+    }
+  </div>
+</section>

@@ -1,0 +1,5 @@
+.rule-list { display: flex; flex-direction: column; gap: 4px; }
+/* A group: a dashed box around its rules */
+.group { border: 1px dashed var(--group-border); border-radius: 5px; padding: 4px 8px 6px; background: var(--group-bg); }
+.group-head { display: flex; gap: 6px; align-items: center; }
+.group-name { width: 180px; font-family: var(--mono); }

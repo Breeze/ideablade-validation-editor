@@ -1,0 +1,4 @@
+<!-- One line per issue, coloured by severity (error, warning, info). -->
+@for (issue of issues(); track $index) {
+  <div class="inline-issue" [class]="issue.severity">{{ issue.message }}</div>
+}
