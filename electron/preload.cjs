@@ -34,7 +34,7 @@ contextBridge.exposeInMainWorld('editorHost', {
   saveSelection: (key, selection) => ipcRenderer.send('ui:set-selection', key, selection),
   close: () => ipcRenderer.send('app:close'),
   onMenu: (handler) => {
-    const listener = (_e, command) => handler(command);
+    const listener = (_e, command, arg) => handler(command, arg);
     ipcRenderer.on('menu', listener);
     return () => ipcRenderer.removeListener('menu', listener);
   },

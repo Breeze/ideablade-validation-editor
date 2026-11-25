@@ -613,6 +613,12 @@ export class EditorStore {
 
   private async openText(path: string, text: string): Promise<void> {
     if (fileName(path).toLowerCase().endsWith(PROJECT_EXTENSION)) {
+      // Another project replaces what's open (Open…, or File → Open Recent Project); the same one stays as it is.
+      if (this.project()?.path.toLowerCase() === path.toLowerCase()) {
+        this.status.set(`The project ${projectLabel(path)} is already open`);
+        return;
+      }
+      if (this.documents().length && !(await this.closeAll())) return;
       await this.openProject(path);
       return;
     }
@@ -882,6 +888,22 @@ export class EditorStore {
   }
 
   /** True when nothing is unsaved, or the user saved or discarded each document's changes. */
+  /**
+   * Closes every document, the project and its sources, after asking about unsaved changes (false: cancelled).
+   * Before another project opens, so its files don't mix with this one's.
+   */
+  private async closeAll(): Promise<boolean> {
+    if (!(await this.confirmDiscard())) return false;
+    this.selectionRestored.set(false); // the next project's own selection comes back when it's open
+    this.selection.set(undefined);
+    this.documents.set([]);
+    this.project.set(undefined);
+    this.sources.set([]);
+    this.regexTests.set(loadRegexTests());
+    this.diskTexts.clear();
+    return true;
+  }
+
   async confirmDiscard(): Promise<boolean> {
     for (const doc of this.documents().filter((d) => d.dirty())) {
       const choice = await host.confirm(`Save the changes to ${doc.label()}?`, doc.path() ?? 'Untitled', ['Save', "Don't save", 'Cancel']);

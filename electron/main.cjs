@@ -5,7 +5,16 @@ const path = require('node:path');
 const { withTypeScriptModels } = require('./typescript-models.cjs');
 const { readTsMetadata, writeTsMetadata, newTsMetadataFile } = require('./typescript-metadata.cjs');
 const { PROJECT_EXTENSION, projectFileName, findProject, readProject, writeProject, watchProjectFolders } = require('./project.cjs');
-const { loadWindowState, trackWindowState, getSelection, setSelection, getLastProject, setLastProject } = require('./window-state.cjs');
+const {
+  loadWindowState,
+  trackWindowState,
+  getSelection,
+  setSelection,
+  getLastProject,
+  setLastProject,
+  getRecentProjects,
+  clearRecentProjects,
+} = require('./window-state.cjs');
 
 let win;
 let forceClose = false;
@@ -96,15 +105,23 @@ ipcMain.handle('ts:new-metadata', (_e, name, json) => newTsMetadataFile(name, js
 
 // The project file (*.ivproj, see project.cjs): the renderer works with absolute paths.
 ipcMain.handle('project:find', (_e, filePath) => findProject(filePath));
-// A project read or written (opened, found next to a metadata file, created) becomes the one to reopen next time.
+// A project read or written (opened, found next to a metadata file, created) becomes the one to reopen next time and
+// the first in File → Open Recent Project (and in the taskbar's jump list).
+function projectUsed(usedPath) {
+  const projectPath = path.resolve(usedPath); // one way of writing each path (backslashes), so none is listed twice
+  const before = getRecentProjects(windowStateFile())[0];
+  setLastProject(windowStateFile(), projectPath);
+  app.addRecentDocument(projectPath);
+  if (before?.toLowerCase() !== projectPath.toLowerCase()) updateMenu();
+}
 ipcMain.handle('project:read', async (_e, projectPath) => {
   const project = await readProject(projectPath);
-  setLastProject(windowStateFile(), projectPath);
+  projectUsed(projectPath);
   return project;
 });
 ipcMain.handle('project:write', async (_e, projectPath, project) => {
   const result = await writeProject(projectPath, project);
-  setLastProject(windowStateFile(), projectPath);
+  projectUsed(projectPath);
   return result;
 });
 
@@ -236,12 +253,41 @@ function sendMenu(command) {
   return () => win.webContents.send('menu', command);
 }
 
-const menu = Menu.buildFromTemplate([
+/** File → Open Recent Project: the recent projects, numbered (Alt+F, R, 1 opens the latest), and a way to clear them. */
+function recentProjectsMenu() {
+  const recent = getRecentProjects(windowStateFile());
+  if (!recent.length) return [{ label: 'No recent projects', enabled: false }];
+  return [
+    ...recent.map((projectPath, i) => ({
+      // Windows menus read & as a mnemonic marker, so a path's own & is doubled.
+      label: `${i < 9 ? `&${i + 1}` : i + 1}  ${projectPath.replace(/&/g, '&&')}`,
+      click: () => win?.webContents.send('menu', 'openRecent', projectPath),
+    })),
+    { type: 'separator' },
+    {
+      label: '&Clear Recent Projects',
+      click: () => {
+        clearRecentProjects(windowStateFile());
+        app.clearRecentDocuments();
+        updateMenu();
+      },
+    },
+  ];
+}
+
+/** Builds the menu again, for the current recent projects. */
+function updateMenu() {
+  Menu.setApplicationMenu(buildMenu());
+}
+
+const buildMenu = () => Menu.buildFromTemplate([
   {
     label: '&File',
     submenu: [
       { label: '&New', accelerator: 'CmdOrCtrl+N', click: sendMenu('new') },
       { label: '&Open…', accelerator: 'CmdOrCtrl+O', click: sendMenu('open') },
+      { label: 'Open &Recent Project', submenu: recentProjectsMenu() },
+      { type: 'separator' },
       { label: '&Save', accelerator: 'CmdOrCtrl+S', click: sendMenu('save') },
       { label: 'Save &As…', accelerator: 'CmdOrCtrl+Shift+S', click: sendMenu('saveAs') },
       { label: 'Save A&ll', accelerator: 'CmdOrCtrl+Alt+S', click: sendMenu('saveAll') },
@@ -258,7 +304,7 @@ const menu = Menu.buildFromTemplate([
 ]);
 
 app.whenReady().then(() => {
-  Menu.setApplicationMenu(menu);
+  updateMenu();
   createWindow();
 });
 

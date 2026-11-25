@@ -4,7 +4,17 @@ const { describe, it } = require('node:test');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { loadWindowState, isVisible, getSelection, setSelection, getLastProject, setLastProject, DEFAULT_WINDOW_SIZE } = require('./window-state.cjs');
+const {
+  loadWindowState,
+  isVisible,
+  getSelection,
+  setSelection,
+  getLastProject,
+  setLastProject,
+  getRecentProjects,
+  clearRecentProjects,
+  DEFAULT_WINDOW_SIZE,
+} = require('./window-state.cjs');
 
 const screens = [
   { workArea: { x: 0, y: 0, width: 1920, height: 1040 } },
@@ -58,6 +68,26 @@ describe('the window state', () => {
     assert.equal(loadWindowState(file, screens).width, 1600); // the bounds are still there
     fs.rmSync(project);
     assert.equal(getLastProject(file), undefined); // moved or deleted: nothing to reopen
+    fs.rmSync(file, { force: true });
+  });
+
+  it('keeps the recent projects, the latest first, once each, at most 10, leaving out the ones that are gone', () => {
+    fs.rmSync(file, { force: true });
+    assert.deepEqual(getRecentProjects(file), []);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vews-'));
+    const projects = Array.from({ length: 12 }, (_, i) => path.join(dir, `p${i}.ivproj`));
+    for (const p of projects) fs.writeFileSync(p, '{}');
+    for (const p of projects) setLastProject(file, p);
+    assert.deepEqual(getRecentProjects(file), projects.slice(2).reverse()); // p11 … p2
+    setLastProject(file, projects[5].toUpperCase()); // the same file, written differently: moves up, not added
+    assert.equal(getRecentProjects(file).length, 10);
+    assert.equal(getRecentProjects(file)[0], projects[5].toUpperCase());
+    fs.rmSync(projects[11]);
+    assert.ok(!getRecentProjects(file).includes(projects[11]));
+    clearRecentProjects(file);
+    assert.deepEqual(getRecentProjects(file), []);
+    assert.equal(getLastProject(file), projects[5].toUpperCase()); // still the one to reopen
+    fs.rmSync(dir, { recursive: true });
     fs.rmSync(file, { force: true });
   });
 

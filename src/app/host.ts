@@ -105,7 +105,8 @@ export interface EditorHost {
   getSelection(key: string): Promise<SavedSelection | undefined>;
   saveSelection(key: string, selection: SavedSelection): void;
   close(): void;
-  onMenu(handler: (command: string) => void): () => void;
+  /** A menu command, with its argument where it has one (File → Open Recent Project: the project's path). */
+  onMenu(handler: (command: string, arg?: string) => void): () => void;
   onCloseRequested(handler: () => void): () => void;
 }
 

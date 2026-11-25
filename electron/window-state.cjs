@@ -94,7 +94,9 @@ function setSelection(file, key, selection) {
   });
 }
 
-// The project used last, reopened when the editor starts without files on its command line. A user setting too.
+// The project used last, reopened when the editor starts without files on its command line, and the ones before it,
+// for File → Open Recent Project. User settings too.
+const MAX_RECENT_PROJECTS = 10;
 
 /** The last project's path, if there is one and its file is still there. */
 function getLastProject(file) {
@@ -102,8 +104,24 @@ function getLastProject(file) {
   return typeof last === 'string' && fs.existsSync(last) ? last : undefined;
 }
 
+/** The recent projects, the most recent first, without the ones that have been moved or deleted since. */
+function getRecentProjects(file) {
+  const recent = readFile(file).recentProjects;
+  return Array.isArray(recent) ? recent.filter((p) => typeof p === 'string' && fs.existsSync(p)) : [];
+}
+
+/** Makes a project the last one, and the first of the recent ones (once: paths are compared ignoring case). */
 function setLastProject(file, projectPath) {
-  updateFile(file, (state) => ({ ...state, lastProject: projectPath }));
+  updateFile(file, (state) => {
+    const before = Array.isArray(state.recentProjects) ? state.recentProjects : [];
+    const others = before.filter((p) => typeof p === 'string' && p.toLowerCase() !== projectPath.toLowerCase());
+    return { ...state, lastProject: projectPath, recentProjects: [projectPath, ...others].slice(0, MAX_RECENT_PROJECTS) };
+  });
+}
+
+/** Empties the recent list. The last project is kept: it's still the one to reopen. */
+function clearRecentProjects(file) {
+  updateFile(file, (state) => ({ ...state, recentProjects: [] }));
 }
 
 module.exports = {
@@ -114,5 +132,7 @@ module.exports = {
   setSelection,
   getLastProject,
   setLastProject,
+  getRecentProjects,
+  clearRecentProjects,
   DEFAULT_WINDOW_SIZE: DEFAULT,
 };

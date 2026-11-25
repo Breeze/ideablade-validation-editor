@@ -204,7 +204,7 @@ export class App {
       if (this.store.focusPath()) this.pane.set('json');
     });
 
-    host.onMenu((command) => {
+    host.onMenu((command, arg) => {
       switch (command) {
         case 'new': return void this.store.newFile();
         case 'open': return void this.store.open();
@@ -214,6 +214,7 @@ export class App {
         case 'close': return void this.store.closeDocument();
         case 'addSource': return void this.store.addSources();
         case 'reloadSources': return void this.store.reloadSources();
+        case 'openRecent': return void (arg && this.store.openPath(arg));
       }
     });
     host.onCloseRequested(async () => {
