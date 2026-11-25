@@ -254,6 +254,7 @@ export class EditorStore {
   private async saveRegexTestsToProject(): Promise<void> {
     const project = this.project();
     if (!project || stableJson(this.regexTests()) === stableJson(project.regexTests ?? {})) return;
+    if (!(await this.checkBeforeWrite(project.path))) return;
     try {
       const saved = await host.writeProject(project.path, {
         metadata: project.metadata,
@@ -263,6 +264,7 @@ export class EditorStore {
         regexTests: this.regexTests(),
       });
       this.project.set(saved);
+      this.rememberDiskText(project.path, (await host.readFile(project.path)).text);
     } catch (e) {
       this.status.set(`Could not save the test values to the project: ${(e as Error).message}`);
     }
@@ -340,10 +342,13 @@ export class EditorStore {
         model: selection.kind === 'model' ? selection.name : undefined,
       });
     });
+    // Every file the editor has open is watched: the sources (reloaded as they change), and the metadata files and the
+    // project file (which ask first: the user may be in the middle of editing them).
+    effect(() => void host.watchSources(this.watchedPaths()));
     host.onSourceChanged((change) => {
-      if (change.path === this.project()?.path) {
-        void this.projectChangedOnDisk();
-        return;
+      const lower = change.path.toLowerCase();
+      if (lower === this.project()?.path.toLowerCase() || this.documents().some((d) => d.path()?.toLowerCase() === lower)) {
+        this.noteOutsideChange(change);
       }
       if (!this.sources().some((s) => s.path === change.path)) return;
       if (change.text !== undefined) {
@@ -353,6 +358,152 @@ export class EditorStore {
         this.replaceSource({ ...this.sources().find((s) => s.path === change.path)!, error: change.error, loadedAt: Date.now() });
       }
     });
+  }
+
+  // ---- Files changed outside the editor
+
+  /** The files to watch: sources, open metadata files, the project file. */
+  readonly watchedPaths = computed(() =>
+    unique([
+      ...this.sources().map((s) => s.path),
+      ...this.documents().map((d) => d.path()).filter((p): p is string => !!p),
+      ...(this.project() ? [this.project()!.path] : []),
+    ]),
+  );
+
+  /**
+   * Each file's text as the editor last read or wrote it. A change on disk that differs from it was made outside the
+   * editor (our own saves match it), and a save checks against it so it doesn't overwrite such a change unasked.
+   */
+  private readonly diskTexts = new Map<string, string>();
+  private rememberDiskText(path: string, text: string): void {
+    this.diskTexts.set(path.toLowerCase(), text);
+  }
+  private diskText(path: string): string | undefined {
+    return this.diskTexts.get(path.toLowerCase());
+  }
+
+  private readonly outsideChanges = new Map<string, { path: string; text?: string }>();
+  private outsideTimer?: ReturnType<typeof setTimeout>;
+  private askingAboutChanges = false;
+
+  /** A metadata or project file changed on disk. Collected for a moment (a git pull changes several), then asked about. */
+  private noteOutsideChange(change: { path: string; text?: string }): void {
+    if (change.text !== undefined && change.text === this.diskText(change.path)) return; // our own save, or no real change
+    this.outsideChanges.set(change.path.toLowerCase(), { path: change.path, text: change.text });
+    clearTimeout(this.outsideTimer);
+    this.outsideTimer = setTimeout(() => void this.askAboutOutsideChanges(), 600);
+  }
+
+  /** Tells the user which files changed outside the editor, and reloads them if they want. Never on its own. */
+  private async askAboutOutsideChanges(): Promise<void> {
+    if (this.askingAboutChanges) {
+      this.outsideTimer = setTimeout(() => void this.askAboutOutsideChanges(), 600);
+      return;
+    }
+    // Leave out what's been dealt with meanwhile (reloaded, or saved over after the save warning).
+    const changes = [...this.outsideChanges.values()].filter((c) => c.text === undefined || c.text !== this.diskText(c.path));
+    this.outsideChanges.clear();
+    if (!changes.length) return;
+    const gone = changes.filter((c) => c.text === undefined);
+    const changed = changes.filter((c) => c.text !== undefined);
+    if (gone.length) {
+      this.status.set(`${gone.map((c) => fileName(c.path)).join(', ')} ${gone.length === 1 ? 'was' : 'were'} deleted or moved outside the editor. Saving writes ${gone.length === 1 ? 'it' : 'them'} again.`);
+    }
+    if (!changed.length) return;
+    this.askingAboutChanges = true;
+    try {
+      const lines = changed.map((c) => {
+        const unsaved = this.isProjectPath(c.path) ? this.projectDirty() : this.documents().some((d) => d.path()?.toLowerCase() === c.path.toLowerCase() && d.dirty());
+        return `• ${fileName(c.path)}${unsaved ? ': you have unsaved changes here, which reloading discards' : ''}`;
+      });
+      const title = changed.length === 1 ? `${fileName(changed[0].path)} changed outside the editor` : `${changed.length} files changed outside the editor`;
+      const choice = await host.confirm(
+        title,
+        `${lines.join('\n')}\n\nReload to see the changes. If you keep the editor's version, saving warns you before it overwrites the changes on disk.`,
+        ['Reload', "Keep the editor's version"],
+      );
+      if (choice === 0) {
+        for (const c of changed) await this.reloadFromDisk(c.path, c.text!);
+        this.status.set(`Reloaded ${changed.map((c) => fileName(c.path)).join(', ')}`);
+      } else {
+        this.status.set(`Kept the editor's version of ${changed.map((c) => fileName(c.path)).join(', ')}`);
+      }
+    } finally {
+      this.askingAboutChanges = false;
+    }
+  }
+
+  private isProjectPath(path: string): boolean {
+    return path.toLowerCase() === this.project()?.path.toLowerCase();
+  }
+
+  /** Replaces what the editor has of a file with its text on disk: a metadata file's maps, or the project. */
+  async reloadFromDisk(path: string, text: string): Promise<void> {
+    if (this.isProjectPath(path)) {
+      let project: Project;
+      try {
+        project = await host.readProject(path);
+      } catch (e) {
+        this.status.set(`${fileName(path)} doesn't read: ${(e as Error).message}`);
+        return;
+      }
+      this.rememberDiskText(path, text);
+      this.project.set(project);
+      this.applyProjectSettings(project);
+      this.sources.set(this.sources().filter((s) => project.sourceFiles.includes(s.path)));
+      await this.loadSourcePaths(project.sourceFiles.filter((p) => !this.sources().some((s) => s.path === p)), false);
+      // Metadata files the project now lists open too, as when opening it.
+      for (const file of project.metadata) {
+        if (!this.documents().some((d) => d.path()?.toLowerCase() === file.toLowerCase())) await this.openPath(file);
+      }
+      return;
+    }
+    const docs = this.documents();
+    const old = docs.filter((d) => d.path()?.toLowerCase() === path.toLowerCase());
+    if (!old.length) return;
+    const fresh = await this.parseDocuments(path, text);
+    this.rememberDiskText(path, text);
+    const index = docs.indexOf(old[0]);
+    this.documents.set([...docs.slice(0, index).filter((d) => !old.includes(d)), ...fresh, ...docs.slice(index).filter((d) => !old.includes(d))]);
+    // Stay on what was selected: the same map, and the same model if it's still there.
+    const selection = this.selection();
+    const selectedOld = old.find((d) => d.id === selection?.docId);
+    if (selection && selectedOld) {
+      const match = fresh.find((d) => (d.name() ?? '') === (selectedOld.name() ?? '')) ?? fresh[0];
+      if (!match) this.selection.set(this.documents()[0] ? { docId: this.documents()[0].id, kind: 'document' } : undefined);
+      else if (selection.kind === 'model' && isPlainObject(match.doc()[selection.name])) this.selection.set({ docId: match.id, kind: 'model', name: selection.name });
+      else this.selection.set({ docId: match.id, kind: 'document' });
+    }
+  }
+
+  /**
+   * Before writing a file: has it changed on disk since the editor read or wrote it? Then warn, and let the user
+   * overwrite, reload instead, or cancel. True when the write may go ahead.
+   */
+  private async checkBeforeWrite(path: string): Promise<boolean> {
+    const known = this.diskText(path);
+    if (known === undefined) return true;
+    let current: string;
+    try {
+      current = (await host.readFile(path)).text;
+    } catch {
+      return true; // deleted: writing creates it again
+    }
+    if (current === known) return true;
+    const choice = await host.confirm(
+      `${fileName(path)} changed outside the editor`,
+      `${path}\n\nIt changed on disk after the editor read it (in another editor, another session, a git pull). Saving now overwrites those changes with the editor's version, and they're lost.`,
+      ['Overwrite', 'Reload from disk', 'Cancel'],
+    );
+    if (choice === 0) return true;
+    if (choice === 1) {
+      await this.reloadFromDisk(path, current);
+      this.status.set(`Reloaded ${fileName(path)}; nothing saved`);
+    } else {
+      this.status.set(`Didn't save ${fileName(path)}`);
+    }
+    return false;
   }
 
   validatorInfo(name: string): ValidatorInfo | undefined {
@@ -471,33 +622,9 @@ export class EditorStore {
       this.status.set(`${fileName(path)} is already open`);
       return;
     }
-    const format = formatOf(path);
-    let docs: MetadataDocument[];
-    if (format === 'ts') {
-      const maps = await host.readTsMetadata(text, path);
-      docs = maps.map((m) => new MetadataDocument({ path, format, name: m.name, doc: m.json, readOnly: m.readOnly, hasComments: m.hasComments }));
-      if (!docs.length) {
-        this.status.set(`${fileName(path)} has no validation metadata: the editor looks for \`const x: ModelValidationMetadataMap = { ... }\`.`);
-        return;
-      }
-    } else if (format === 'cs') {
-      docs = readCsMetadata(text).map((m) => new MetadataDocument({ path, format, name: m.name, doc: m.json, hasComments: m.hasComments }));
-      if (!docs.length) {
-        this.status.set(`${fileName(path)} has no validation metadata: the editor looks for a JSON string (a """ raw string or @"...") holding a metadata object.`);
-        return;
-      }
-    } else {
-      const doc = new MetadataDocument({ path, doc: EMPTY, text });
-      try {
-        const parsed = JSON.parse(text) as Json;
-        if (!isPlainObject(parsed)) throw new Error('The file is not a JSON object.');
-        docs = [new MetadataDocument({ path, doc: parsed, text })];
-      } catch (e) {
-        doc.setInvalid(text, (e as Error).message);
-        docs = [doc];
-        this.status.set(`${fileName(path)} doesn't parse; fix it in the JSON view. ${(e as Error).message}`);
-      }
-    }
+    const docs = await this.parseDocuments(path, text);
+    if (!docs.length) return;
+    this.rememberDiskText(path, text);
     this.add(docs);
     if (!this.status().includes("doesn't parse")) {
       this.status.set(`Opened ${fileName(path)}${docs.length > 1 ? ` (${docs.length} metadata maps)` : ''}`);
@@ -512,6 +639,31 @@ export class EditorStore {
     const remembered = JSON.parse(localStorage.getItem(SOURCES_KEY(path)) ?? '[]') as string[];
     const missing = remembered.filter((p) => !this.sources().some((s) => s.path === p));
     if (missing.length) await this.loadSourcePaths(missing, false);
+  }
+
+  /** A metadata file's maps, as documents: one for JSON, one per map in a TS or C# file. Empty when it has none. */
+  private async parseDocuments(path: string, text: string): Promise<MetadataDocument[]> {
+    const format = formatOf(path);
+    if (format === 'ts') {
+      const maps = await host.readTsMetadata(text, path);
+      if (!maps.length) this.status.set(`${fileName(path)} has no validation metadata: the editor looks for \`const x: ModelValidationMetadataMap = { ... }\`.`);
+      return maps.map((m) => new MetadataDocument({ path, format, name: m.name, doc: m.json, readOnly: m.readOnly, hasComments: m.hasComments }));
+    }
+    if (format === 'cs') {
+      const maps = readCsMetadata(text);
+      if (!maps.length) this.status.set(`${fileName(path)} has no validation metadata: the editor looks for a JSON string (a """ raw string or @"...") holding a metadata object.`);
+      return maps.map((m) => new MetadataDocument({ path, format, name: m.name, doc: m.json, hasComments: m.hasComments }));
+    }
+    try {
+      const parsed = JSON.parse(text) as Json;
+      if (!isPlainObject(parsed)) throw new Error('The file is not a JSON object.');
+      return [new MetadataDocument({ path, doc: parsed, text })];
+    } catch (e) {
+      const doc = new MetadataDocument({ path, doc: EMPTY, text });
+      doc.setInvalid(text, (e as Error).message);
+      this.status.set(`${fileName(path)} doesn't parse; fix it in the JSON view. ${(e as Error).message}`);
+      return [doc];
+    }
   }
 
   // ---- The project file (*.ivproj)
@@ -563,6 +715,11 @@ export class EditorStore {
       this.status.set(`Could not read the project ${projectPath}: ${(e as Error).message}`);
       return false;
     }
+    try {
+      this.rememberDiskText(projectPath, (await host.readFile(projectPath)).text);
+    } catch {
+      // read a moment ago: leave the check to the next read
+    }
     this.project.set(project);
     this.applyProjectSettings(project);
     if (replaceSources) this.sources.set([]);
@@ -579,28 +736,6 @@ export class EditorStore {
     this.regexTests.set(project.regexTests ?? {});
   }
 
-  /** The project file changed on disk (a git pull, an edit elsewhere): take it, unless there are unsaved changes. */
-  private async projectChangedOnDisk(): Promise<void> {
-    const current = this.project();
-    if (!current) return;
-    if (this.projectDirty()) {
-      this.status.set(`${projectLabel(current.path)} changed on disk. Save the project to keep your changes, or reload the sources to take its.`);
-      return;
-    }
-    let project: Project;
-    try {
-      project = await host.readProject(current.path);
-    } catch (e) {
-      this.status.set(`${projectLabel(current.path)} changed and doesn't read: ${(e as Error).message}`);
-      return;
-    }
-    this.project.set(project);
-    this.applyProjectSettings(project);
-    this.sources.set(this.sources().filter((s) => project.sourceFiles.includes(s.path)));
-    await this.loadSourcePaths(project.sourceFiles.filter((p) => !this.sources().some((s) => s.path === p)), false);
-    this.status.set(`Reloaded the project ${projectLabel(current.path)}`);
-  }
-
   /** Saves the project file, or creates one next to the selected metadata file. */
   async saveProject(): Promise<boolean> {
     let path = this.project()?.path;
@@ -608,9 +743,12 @@ export class EditorStore {
       const active = this.active()?.path();
       path = await host.chooseProjectPath(active ? active.replace(/[\\/][^\\/]*$/, '') : undefined);
       if (!path) return false;
+    } else if (!(await this.checkBeforeWrite(path))) {
+      return false;
     }
     try {
       this.project.set(await host.writeProject(path, this.projectState()));
+      this.rememberDiskText(path, (await host.readFile(path)).text);
     } catch (e) {
       this.status.set(`Could not save the project: ${(e as Error).message}`);
       return false;
@@ -651,10 +789,13 @@ export class EditorStore {
     }
     const path = doc.path();
     if (!path) return this.saveAs(doc);
+    // Don't overwrite changes made to the file outside the editor without asking.
+    if (!(await this.checkBeforeWrite(path))) return false;
     const format = doc.format();
     if (format === 'json') {
       const text = doc.invalidText()?.text ?? doc.jsonText();
       await host.saveFile(path, text);
+      this.rememberDiskText(path, text);
       doc.markSaved(text);
     } else {
       if (doc.invalidText()) {
@@ -676,6 +817,7 @@ export class EditorStore {
             ? await host.writeTsMetadata(current.text, path, doc.name()!, doc.doc())
             : writeCsMetadata(current.text, doc.name()!, doc.doc());
         await host.saveFile(path, text);
+        this.rememberDiskText(path, text);
       } catch (e) {
         this.status.set(`Could not save ${doc.label()}: ${(e as Error).message}`);
         return false;
@@ -713,6 +855,7 @@ export class EditorStore {
       text = stringify(doc.doc());
     }
     await host.saveFile(path, text);
+    this.rememberDiskText(path, text);
     doc.path.set(path);
     doc.format.set(format);
     doc.name.set(name);
@@ -825,9 +968,7 @@ export class EditorStore {
   }
 
   private afterSourcesChanged(remember = true): void {
-    // The project file is watched too, so a change to it (a git pull) is picked up.
-    const project = this.project()?.path;
-    void host.watchSources([...this.sources().map((s) => s.path), ...(project ? [project] : [])]);
+    // Watching follows watchedPaths (the constructor's effect); only the per-user memory needs a nudge here.
     if (remember) this.rememberSources();
   }
 
