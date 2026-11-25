@@ -21,6 +21,10 @@ function createWindow() {
     width: state.width,
     height: state.height,
     ...(state.x !== undefined ? { x: state.x, y: state.y } : {}),
+    // The three columns' minimum widths (300 + 460 + 400 px in styles.css, .layout) plus the frame: narrower, and the
+    // right one is cut off at the window's edge.
+    minWidth: 1180,
+    minHeight: 500,
     show: false, // shown once placed, maximised if it was, so it doesn't jump
     backgroundColor: '#1e1e1e', // the default dark theme, until the renderer says otherwise (no white flash)
     title: 'IdeaBlade Validation Editor',

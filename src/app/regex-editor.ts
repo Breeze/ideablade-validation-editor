@@ -238,6 +238,8 @@ export class RegexEditor implements OnDestroy {
           // One line: Enter doesn't add a line break to a pattern.
           EditorState.transactionFilter.of((tr) => (tr.newDoc.lines > 1 ? [] : tr)),
           placeholderExtension('e.g. ^[A-Z]{3}$'),
+          // A long pattern wraps rather than scrolling sideways, so all of it stays in view.
+          EditorView.lineWrapping,
           theme,
           EditorView.updateListener.of((update) => {
             if (update.docChanged) this.changed.emit(update.state.doc.toString());
