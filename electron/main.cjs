@@ -4,7 +4,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { withTypeScriptModels } = require('./typescript-models.cjs');
 const { readTsMetadata, writeTsMetadata, insertTsMetadata, removeTsMetadata, newTsMetadataFile } = require('./typescript-metadata.cjs');
-const { PROJECT_EXTENSION, projectFileName, findProject, readProject, writeProject, watchProjectFolders } = require('./project.cjs');
+const { PROJECT_EXTENSION, projectFileName, findProject, readProject, writeProject, expandPatterns, watchPatterns } = require('./project.cjs');
 const {
   loadWindowState,
   trackWindowState,
@@ -159,18 +159,29 @@ ipcMain.handle('project:write', async (_e, projectPath, project) => {
   return result;
 });
 
-// The folders the project's patterns point at: files appearing or disappearing there (a new DTO, a deleted entity)
-// are sent to the renderer as the patterns' new list of files. One project at a time; called again when it changes.
-let stopProjectWatch;
-ipcMain.handle('project:watch', async (_e, projectPath) => {
-  stopProjectWatch?.();
-  stopProjectWatch = undefined;
-  if (!projectPath) return;
+// Source patterns (a folder of DTOs: dir/**/*.{ts,cs}): the files each matches, and the folders they point at watched,
+// so files appearing or disappearing there (a new DTO, a deleted entity) are sent to the renderer as the patterns'
+// new lists of files. One set of patterns at a time, the editor's; called again when they change.
+ipcMain.handle('sources:expand-patterns', (_e, patterns, baseDir) => expandPatterns(patterns, baseDir));
+let stopPatternWatch;
+ipcMain.handle('sources:watch-patterns', async (_e, patterns) => {
+  stopPatternWatch?.();
+  stopPatternWatch = undefined;
+  if (!patterns?.length) return;
   try {
-    stopProjectWatch = await watchProjectFolders(projectPath, (sourceFiles) => win?.webContents.send('project:files-changed', { path: projectPath, sourceFiles }));
+    stopPatternWatch = await watchPatterns(patterns, (matches) => win?.webContents.send('sources:pattern-matches', matches));
   } catch {
-    // the project doesn't read: the renderer has reported that already
+    // a folder that isn't there (yet): nothing to watch
   }
+});
+// Add folder: a folder to take the sources from, starting in the project's folder.
+ipcMain.handle('file:choose-source-folder', async (_e, defaultDir) => {
+  const result = await dialog.showOpenDialog(win, {
+    title: 'Add a folder of model sources (TS and C# files, in it and its subfolders)',
+    defaultPath: defaultDir,
+    properties: ['openDirectory'],
+  });
+  return result.canceled ? undefined : result.filePaths[0];
 });
 ipcMain.handle('project:choose-path', async (_e, defaultDir) => {
   const result = await dialog.showSaveDialog(win, {
@@ -343,6 +354,7 @@ const buildMenu = () => Menu.buildFromTemplate([
       { label: 'Discard All &Unsaved Changes…', enabled: hasUnsaved, click: sendMenu('discardAll') },
       { type: 'separator' },
       { label: 'Add &source (Breeze, TS, C#)…', accelerator: 'CmdOrCtrl+M', click: sendMenu('addSource') },
+      { label: 'Add source &folder…', accelerator: 'CmdOrCtrl+Shift+M', click: sendMenu('addSourceFolder') },
       { label: 'Reloa&d model sources', accelerator: 'F5', click: sendMenu('reloadSources') },
       { type: 'separator' },
       { role: 'quit' },

@@ -22,7 +22,7 @@ import {
 } from '../lib/doc';
 import { mergeMaps, mergeModel } from '../lib/merge';
 import { type ModelSource, appFunctions, appValidators, buildCatalog, fileName, parseSource } from '../lib/sources';
-import { type Project, type ProjectState, type RegexTestSet, host } from './host';
+import { type PatternMatch, type Project, type ProjectState, type RegexTestSet, host } from './host';
 import type { ThemeSetting } from './theme';
 
 /** Where a document is kept: a JSON file, or a metadata map in a TypeScript or C# file. */
@@ -146,6 +146,11 @@ const SOURCES_KEY = (file: string) => `editor.sources:${file.toLowerCase()}`;
 /** The project file's extension (IdeaBlade Validation Project): the editor finds one next to a metadata file or in a folder above it. */
 export const PROJECT_EXTENSION = '.ivproj';
 
+/** "1 file", "12 files". */
+function filesCount(n: number): string {
+  return `${n} ${n === 1 ? 'file' : 'files'}`;
+}
+
 function projectLabel(path: string): string {
   const parts = path.split(/[\\/]/);
   return parts.length > 1 ? `${parts[parts.length - 2]}/${parts[parts.length - 1]}` : path;
@@ -155,6 +160,9 @@ function unique(paths: string[]): string[] {
   const seen = new Set<string>();
   return paths.filter((p) => !seen.has(p.toLowerCase()) && seen.add(p.toLowerCase()));
 }
+
+/** A source entry with wildcards (`*`, `?`, `[`): a pattern for a folder of sources, not a file. */
+export const isPattern = (entry: string): boolean => /[*?[]/.test(entry);
 
 function sameSet(a: readonly string[], b: readonly string[]): boolean {
   const lower = (list: readonly string[]) => new Set(list.map((p) => p.toLowerCase()));
@@ -233,7 +241,7 @@ export class EditorStore {
     const closed = new Set(this.closedMetadata().map((p) => p.toLowerCase()));
     return {
       metadata: unique([...(this.project()?.metadata ?? []), ...open]).filter((p) => !closed.has(p.toLowerCase())),
-      sources: this.sources().map((s) => s.path),
+      sources: this.sourceEntries(),
       otherValidators: this.settings().customValidators,
       camelCase: this.settings().camelCase,
       regexTests: this.regexTests(),
@@ -245,7 +253,7 @@ export class EditorStore {
     const s = this.projectState();
     return (
       !sameSet(s.metadata, p.metadata) ||
-      !sameSet(s.sources, p.sourceFiles) ||
+      !sameSet(s.sources, p.sources) ||
       !sameSet(s.otherValidators, p.otherValidators) ||
       s.camelCase !== p.camelCase ||
       stableJson(s.regexTests) !== stableJson(p.regexTests ?? {})
@@ -293,7 +301,7 @@ export class EditorStore {
     try {
       const saved = await host.writeProject(project.path, {
         metadata: project.metadata,
-        sources: project.sourceFiles,
+        sources: project.sources,
         otherValidators: project.otherValidators,
         camelCase: project.camelCase,
         regexTests: this.regexTests(),
@@ -366,16 +374,11 @@ export class EditorStore {
   readonly errorCount = computed(() => this.allIssues().filter((i) => i.severity === 'error').length);
 
   constructor() {
-    // A file appeared in or disappeared from one of the project's pattern folders (a new DTO, a deleted entity).
-    host.onProjectFilesChanged((change) => {
-      if (change.path === this.project()?.path) void this.applyProjectFiles(change.sourceFiles);
-    });
-    // Whichever project is in use, its pattern folders are watched; again when its patterns change.
-    const watched = computed(() => {
-      const p = this.project();
-      return p ? `${p.path}\n${p.sources.join('\n')}` : '';
-    });
-    effect(() => void host.watchProject(watched() ? watched().split('\n')[0] : undefined));
+    // A file appeared in or disappeared from a source pattern's folder (a new DTO, a deleted entity).
+    host.onPatternMatches((matches) => void this.applyPatternMatches(matches));
+    // The folders the source patterns point at are watched, saved to a project or not; again when they change.
+    const patterns = computed(() => this.sourcePatterns().map((p) => p.pattern).join('\n'));
+    effect(() => void host.watchPatterns(patterns() ? patterns().split('\n') : []));
     // File → Close Project only while there's one.
     effect(() => host.setProjectOpen(!!this.project()));
     // File → Discard All Unsaved Changes only while there's something to discard.
@@ -507,6 +510,7 @@ export class EditorStore {
       this.project.set(project);
       this.closedMetadata.set([]); // reloaded: the file on disk says which metadata files are in it
       this.applyProjectSettings(project);
+      this.sourcePatterns.set(project.patterns ?? []);
       this.sources.set(this.sources().filter((s) => project.sourceFiles.includes(s.path)));
       await this.loadSourcePaths(project.sourceFiles.filter((p) => !this.sources().some((s) => s.path === p)), false);
       // Metadata files the project now lists open too, as when opening it.
@@ -710,7 +714,12 @@ export class EditorStore {
       return;
     }
     const remembered = JSON.parse(localStorage.getItem(SOURCES_KEY(path)) ?? '[]') as string[];
-    const missing = remembered.filter((p) => !this.sources().some((s) => s.path === p));
+    const known = new Set(this.sourcePatterns().map((p) => p.pattern.toLowerCase()));
+    const patterns = remembered.filter((p) => isPattern(p) && !known.has(p.toLowerCase()));
+    const matches = patterns.length ? await host.expandPatterns(patterns) : [];
+    if (matches.length) this.sourcePatterns.update((list) => [...list, ...matches]);
+    const files = [...remembered.filter((p) => !isPattern(p)), ...matches.flatMap((m) => m.files)];
+    const missing = unique(files).filter((p) => !this.sources().some((s) => s.path === p));
     if (missing.length) await this.loadSourcePaths(missing, false);
   }
 
@@ -797,6 +806,8 @@ export class EditorStore {
     this.closedMetadata.set([]);
     this.applyProjectSettings(project);
     if (replaceSources) this.sources.set([]);
+    const ours = new Set((project.patterns ?? []).map((p) => p.pattern.toLowerCase()));
+    this.sourcePatterns.set([...(project.patterns ?? []), ...(replaceSources ? [] : this.sourcePatterns().filter((p) => !ours.has(p.pattern.toLowerCase())))]);
     const missing = project.sourceFiles.filter((p) => !this.sources().some((s) => s.path === p));
     await this.loadSourcePaths(missing, false);
     this.status.set(`Using the project ${projectLabel(projectPath)}`);
@@ -821,7 +832,9 @@ export class EditorStore {
       return false;
     }
     try {
-      this.project.set(await host.writeProject(path, this.projectState()));
+      const saved = await host.writeProject(path, this.projectState());
+      this.project.set(saved);
+      this.sourcePatterns.set(saved.patterns ?? []);
       this.closedMetadata.set([]); // saved: the closed files are out of it now
       this.rememberDiskText(path, (await host.readFile(path)).text);
     } catch (e) {
@@ -1260,6 +1273,7 @@ export class EditorStore {
     this.project.set(undefined);
     this.closedMetadata.set([]);
     this.sources.set([]);
+    this.sourcePatterns.set([]);
     this.regexTests.set(loadRegexTests());
     this.diskTexts.clear();
     return true;
@@ -1309,42 +1323,124 @@ export class EditorStore {
   }
 
   async reloadSources(): Promise<void> {
-    // The project's patterns again first, so files added or removed since are taken in.
-    const project = this.project();
-    if (project) {
-      try {
-        await this.applyProjectFiles((await host.readProject(project.path)).sourceFiles, false);
-      } catch {
-        // the project file doesn't read right now: reload what's loaded
-      }
-    }
+    // The patterns again first, so files added or removed since are taken in.
+    const patterns = this.sourcePatterns().map((p) => p.pattern);
+    if (patterns.length) await this.applyPatternMatches(await host.expandPatterns(patterns), false);
     await this.loadSourcePaths(this.sources().map((s) => s.path));
     this.status.set('Reloaded the sources');
   }
 
+  // ---- Source patterns: a folder of sources (`C:\app\dtos\**\*.{ts,cs}`), its files loaded, new ones as they appear
+
   /**
-   * The files the project's sources stand for now: loads the new ones and drops those that are gone. Sources added in
-   * the editor and not saved to the project yet stay.
+   * The source patterns in use, absolute, with the files each matches now: the project's, or remembered with the
+   * metadata files without one. Their files are loaded as sources, and listed under them in the sidebar.
    */
-  private async applyProjectFiles(sourceFiles: string[], report = true): Promise<void> {
-    const project = this.project();
-    if (!project) return;
-    const lower = (list: string[]) => new Set(list.map((p) => p.toLowerCase()));
-    const before = lower(project.sourceFiles);
-    const after = lower(sourceFiles);
-    const added = sourceFiles.filter((p) => !before.has(p.toLowerCase()) && !this.sources().some((s) => s.path.toLowerCase() === p.toLowerCase()));
-    const removed = project.sourceFiles.filter((p) => !after.has(p.toLowerCase()));
-    this.project.set({ ...project, sourceFiles });
-    if (removed.length) {
-      const gone = lower(removed);
-      this.sources.set(this.sources().filter((s) => !gone.has(s.path.toLowerCase())));
+  readonly sourcePatterns = signal<PatternMatch[]>([]);
+
+  /** The files a pattern matches, lower-cased: they come and go with it, not one by one. */
+  private readonly patternFiles = computed(() => new Set(this.sourcePatterns().flatMap((p) => p.files.map((f) => f.toLowerCase()))));
+
+  /** Whether a loaded source is there because a pattern matches it. */
+  fromPattern(path: string): boolean {
+    return this.patternFiles().has(path.toLowerCase());
+  }
+
+  /** The sources as the project file lists them: the patterns, then each file no pattern matches. */
+  readonly sourceEntries = computed(() => [
+    ...this.sourcePatterns().map((p) => p.pattern),
+    ...this.sources()
+      .map((s) => s.path)
+      .filter((p) => !this.fromPattern(p)),
+  ]);
+
+  /** The folder relative patterns are taken from: the project's, else the first metadata file's. */
+  patternBaseDir(): string | undefined {
+    const file = this.project()?.path ?? this.documents().find((d) => d.path())?.path();
+    return file?.replace(/[\\/][^\\/]*$/, '');
+  }
+
+  /** A pattern as shown and edited: relative to the project's folder (forward slashes) when it's in it. */
+  patternLabel(pattern: string): string {
+    const base = this.patternBaseDir();
+    const slash = (p: string) => p.replace(/\\/g, '/');
+    if (base && slash(pattern).toLowerCase().startsWith(slash(base).toLowerCase() + '/')) return slash(pattern).slice(base.length + 1);
+    return pattern;
+  }
+
+  /** Add folder: asks for a folder, and adds its TS and C# files, in it and its subfolders, as a pattern. */
+  async addSourceFolder(): Promise<void> {
+    const dir = await host.chooseSourceFolder(this.patternBaseDir());
+    if (!dir) return;
+    const sep = dir.includes('\\') ? '\\' : '/';
+    await this.addPattern(`${dir.replace(/[\\/]+$/, '')}${sep}**${sep}*.{ts,cs}`);
+  }
+
+  /** Adds a source pattern (a relative one is taken from the project's folder) and loads the files it matches. */
+  async addPattern(text: string): Promise<boolean> {
+    if (!text.trim()) return false;
+    const [match] = await host.expandPatterns([text.trim()], this.patternBaseDir());
+    if (this.sourcePatterns().some((p) => p.pattern.toLowerCase() === match.pattern.toLowerCase())) {
+      this.status.set(`${this.patternLabel(match.pattern)} is a source already`);
+      return false;
     }
-    if (added.length) await this.loadSourcePaths(added, false);
+    this.sourcePatterns.update((list) => [...list, match]);
+    await this.loadPatternFiles(match.files);
+    this.status.set(`Added ${this.patternLabel(match.pattern)}: ${filesCount(match.files.length)}${match.files.length ? '' : ' yet'}; new files are picked up as they appear`);
+    return true;
+  }
+
+  /** Changes a pattern: the files only the old one matched go, the new one's come. */
+  async changePattern(old: string, text: string): Promise<boolean> {
+    if (!text.trim()) return false;
+    const [match] = await host.expandPatterns([text.trim()], this.patternBaseDir());
+    if (match.pattern.toLowerCase() === old.toLowerCase()) return true;
+    if (this.sourcePatterns().some((p) => p.pattern.toLowerCase() === match.pattern.toLowerCase())) {
+      this.status.set(`${this.patternLabel(match.pattern)} is a source already`);
+      return false;
+    }
+    const before = this.patternFiles();
+    this.sourcePatterns.update((list) => list.map((p) => (p.pattern === old ? match : p)));
+    this.dropUnmatched(before);
+    await this.loadPatternFiles(match.files);
+    this.status.set(`Changed the pattern: ${filesCount(match.files.length)}`);
+    return true;
+  }
+
+  /** Removes a pattern and the sources only it matched. */
+  removePattern(pattern: string): void {
+    const before = this.patternFiles();
+    this.sourcePatterns.update((list) => list.filter((p) => p.pattern !== pattern));
+    this.dropUnmatched(before);
+    this.afterSourcesChanged();
+  }
+
+  /** Each pattern's files now (a folder changed, or Reload sources): loads the new ones and drops those that are gone. */
+  private async applyPatternMatches(matches: PatternMatch[], report = true): Promise<void> {
+    const current = new Map(matches.map((m) => [m.pattern.toLowerCase(), m]));
+    const before = this.patternFiles();
+    this.sourcePatterns.update((list) => list.map((p) => current.get(p.pattern.toLowerCase()) ?? p));
+    const removed = this.sources().filter((s) => before.has(s.path.toLowerCase()) && !this.fromPattern(s.path)).map((s) => s.path);
+    this.dropUnmatched(before);
+    const added = this.sourcePatterns()
+      .flatMap((p) => p.files)
+      .filter((p) => !this.sources().some((s) => s.path.toLowerCase() === p.toLowerCase()));
+    if (added.length) await this.loadSourcePaths(unique(added), false);
     else if (removed.length) this.afterSourcesChanged(false);
     if (report && (added.length || removed.length)) {
       const names = (list: string[]) => list.map(fileName).join(', ');
       this.status.set([added.length ? `New: ${names(added)}` : '', removed.length ? `Gone: ${names(removed)}` : ''].filter(Boolean).join(' · '));
     }
+  }
+
+  /** Drops the sources a pattern matched before (`before`) and none matches now. */
+  private dropUnmatched(before: ReadonlySet<string>): void {
+    this.sources.set(this.sources().filter((s) => !before.has(s.path.toLowerCase()) || this.fromPattern(s.path)));
+  }
+
+  private async loadPatternFiles(files: string[]): Promise<void> {
+    const missing = files.filter((p) => !this.sources().some((s) => s.path.toLowerCase() === p.toLowerCase()));
+    await this.loadSourcePaths(missing);
   }
 
   removeSource(path: string): void {
@@ -1369,7 +1465,7 @@ export class EditorStore {
    */
   private rememberSources(): void {
     if (this.project()) return;
-    const paths = JSON.stringify(this.sources().map((s) => s.path));
+    const paths = JSON.stringify(this.sourceEntries());
     for (const file of new Set(this.documents().map((d) => d.path()).filter((p): p is string => !!p))) {
       localStorage.setItem(SOURCES_KEY(file), paths);
     }

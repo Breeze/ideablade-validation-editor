@@ -4,7 +4,7 @@ const { describe, it } = require('node:test');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { findProject, isProjectFile, parseProject, patternBase, projectFileName, projectText, readProject, watchProjectFolders, writeProject } = require('./project.cjs');
+const { expandPatterns, findProject, isPattern, isProjectFile, parseProject, patternBase, projectFileName, projectText, readProject, watchPatterns, writeProject } = require('./project.cjs');
 
 describe('the project file', () => {
   const root = path.resolve('/work/temphire.server');
@@ -67,15 +67,16 @@ describe('the project file', () => {
       assert.deepEqual(written.metadata, [path.join(nested, 'm.json')]);
       assert.match(await fs.readFile(file, 'utf8'), /"a\/b\/m\.json"/);
 
-      // Patterns: expanded when read, and kept when written back as long as they match a loaded file.
+      // Patterns: expanded when read, each with its files, and written back as given, relative.
       for (const name of ['x.ts', 'y.ts', 'z.cs']) await fs.writeFile(path.join(nested, name), '');
       await fs.writeFile(file, JSON.stringify({ sources: ['a/b/*.ts', 'other.json'] }));
       const read = await readProject(file);
       assert.deepEqual(read.sourceFiles, [path.join(nested, 'x.ts'), path.join(nested, 'y.ts'), path.join(dir, 'other.json')]);
-      const extra = path.join(nested, 'z.cs');
-      const saved = await writeProject(file, { metadata: [], sources: [...read.sourceFiles.slice(0, 2), extra], otherValidators: [], camelCase: true });
-      assert.deepEqual(JSON.parse(await fs.readFile(file, 'utf8')).sources, ['a/b/*.ts', 'a/b/z.cs']);
-      assert.deepEqual(saved.sourceFiles, [path.join(nested, 'x.ts'), path.join(nested, 'y.ts'), extra]);
+      assert.deepEqual(read.patterns, [{ pattern: path.join(nested, '*.ts'), files: [path.join(nested, 'x.ts'), path.join(nested, 'y.ts')] }]);
+      const folder = path.join(dir, 'a', '**', '*.{ts,cs}');
+      const saved = await writeProject(file, { metadata: [], sources: [folder, path.join(dir, 'other.json')], otherValidators: [], camelCase: true });
+      assert.deepEqual(JSON.parse(await fs.readFile(file, 'utf8')).sources, ['a/**/*.{ts,cs}', 'other.json']);
+      assert.deepEqual(saved.patterns[0].files, ['x.ts', 'y.ts', 'z.cs'].map((n) => path.join(nested, n)));
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }
@@ -99,6 +100,22 @@ describe('the project file', () => {
     }
   });
 
+  it('expands patterns, relative ones from a folder, a folder and its subfolders with **', async () => {
+    assert.equal(isPattern('dtos/*.ts'), true);
+    assert.equal(isPattern('dtos/a.ts'), false);
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'vex-'));
+    try {
+      await fs.mkdir(path.join(dir, 'dtos', 'more', 'node_modules'), { recursive: true });
+      for (const name of ['a.ts', 'b.cs', 'c.json', 'more/d.ts', 'more/node_modules/e.ts']) await fs.writeFile(path.join(dir, 'dtos', name), '');
+      const [all, none] = await expandPatterns(['dtos/**/*.{ts,cs}', 'nowhere/*.ts'], dir);
+      assert.equal(all.pattern, path.join(dir, 'dtos', '**', '*.{ts,cs}'));
+      assert.deepEqual(all.files, ['a.ts', 'b.cs', path.join('more', 'd.ts')].map((n) => path.join(dir, 'dtos', n)));
+      assert.deepEqual(none.files, []);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('knows where a pattern starts', () => {
     assert.deepEqual(patternBase(path.join(root, 'client', 'dtos', '*.ts')), { dir: path.join(root, 'client', 'dtos'), recursive: false });
     assert.deepEqual(patternBase(path.join(root, 'client', '**', '*.dto.ts')), { dir: path.join(root, 'client'), recursive: true });
@@ -109,11 +126,10 @@ describe('the project file', () => {
     const dtos = path.join(dir, 'dtos');
     await fs.mkdir(dtos);
     await fs.writeFile(path.join(dtos, 'a.ts'), '');
-    const file = path.join(dir, 'temphire.ivproj');
-    await fs.writeFile(file, JSON.stringify({ sources: ['dtos/*.ts'] }));
     const changes = [];
     let notify;
-    const stop = await watchProjectFolders(file, (files) => { changes.push(files); notify?.(); }, 100);
+    const pattern = path.join(dtos, '*.ts');
+    const stop = await watchPatterns([pattern], (matches) => { changes.push(matches[0].files); notify?.(); }, 100);
     const next = () => new Promise((resolve, reject) => {
       notify = resolve;
       setTimeout(() => reject(new Error('no change reported')), 5000);

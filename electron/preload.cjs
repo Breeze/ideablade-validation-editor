@@ -15,12 +15,14 @@ contextBridge.exposeInMainWorld('editorHost', {
   readProject: (projectPath) => ipcRenderer.invoke('project:read', projectPath),
   writeProject: (projectPath, project) => ipcRenderer.invoke('project:write', projectPath, project),
   chooseProjectPath: (defaultDir) => ipcRenderer.invoke('project:choose-path', defaultDir),
-  watchProject: (projectPath) => ipcRenderer.invoke('project:watch', projectPath),
-  onProjectFilesChanged: (handler) => {
-    const listener = (_e, change) => handler(change);
-    ipcRenderer.on('project:files-changed', listener);
-    return () => ipcRenderer.removeListener('project:files-changed', listener);
+  expandPatterns: (patterns, baseDir) => ipcRenderer.invoke('sources:expand-patterns', patterns, baseDir),
+  watchPatterns: (patterns) => ipcRenderer.invoke('sources:watch-patterns', patterns),
+  onPatternMatches: (handler) => {
+    const listener = (_e, matches) => handler(matches);
+    ipcRenderer.on('sources:pattern-matches', listener);
+    return () => ipcRenderer.removeListener('sources:pattern-matches', listener);
   },
+  chooseSourceFolder: (defaultDir) => ipcRenderer.invoke('file:choose-source-folder', defaultDir),
   confirm: (message, detail, buttons) => ipcRenderer.invoke('app:confirm', message, detail, buttons),
   openSources: () => ipcRenderer.invoke('file:open-source'),
   watchSources: (paths) => ipcRenderer.invoke('sources:watch', paths),

@@ -61,10 +61,18 @@ export interface Project {
   sources: string[];
   /** The files they stand for now. */
   sourceFiles: string[];
+  /** The pattern entries, absolute, with the files each matches now. */
+  patterns: PatternMatch[];
   otherValidators: string[];
   camelCase: boolean;
   /** Values to try against each pattern rule, by rule (see EditorStore.regexTests). */
   regexTests?: Record<string, RegexTestSet>;
+}
+
+/** A source pattern (absolute, such as `C:\app\dtos\**\*.{ts,cs}`) and the files it matches. */
+export interface PatternMatch {
+  pattern: string;
+  files: string[];
 }
 
 export interface ProjectState {
@@ -109,10 +117,14 @@ export interface EditorHost {
   readProject(projectPath: string): Promise<Project>;
   writeProject(projectPath: string, state: ProjectState): Promise<Project>;
   chooseProjectPath(defaultDir?: string): Promise<string | undefined>;
-  /** Watches the folders of the project's source patterns (none for undefined). */
-  watchProject(projectPath: string | undefined): Promise<void>;
-  /** Files appeared in or disappeared from a pattern folder: the patterns' files now. */
-  onProjectFilesChanged(handler: (change: { path: string; sourceFiles: string[] }) => void): () => void;
+  /** Source patterns made absolute (relative ones to `baseDir`), with the files each matches now. */
+  expandPatterns(patterns: string[], baseDir?: string): Promise<PatternMatch[]>;
+  /** Watches the folders these source patterns (absolute) point at; an empty list stops watching. */
+  watchPatterns(patterns: string[]): Promise<void>;
+  /** Files appeared in or disappeared from a pattern's folder: each pattern's files now. */
+  onPatternMatches(handler: (matches: PatternMatch[]) => void): () => void;
+  /** Asks for a folder of sources (Add folder); undefined when cancelled. */
+  chooseSourceFolder(defaultDir?: string): Promise<string | undefined>;
   confirm(message: string, detail: string, buttons: string[]): Promise<number>;
   openSources(): Promise<OpenedFile[]>;
   watchSources(paths: string[]): Promise<void>;
@@ -170,8 +182,10 @@ const browserHost: EditorHost = {
   readProject: noFileSystem,
   writeProject: noFileSystem,
   chooseProjectPath: async () => undefined,
-  watchProject: async () => {},
-  onProjectFilesChanged: () => () => {},
+  expandPatterns: async (patterns) => patterns.map((pattern) => ({ pattern, files: [] })),
+  watchPatterns: async () => {},
+  onPatternMatches: () => () => {},
+  chooseSourceFolder: async () => undefined,
   confirm: async (message, _detail, buttons) => (window.confirm(message) ? 0 : buttons.length - 1),
   openSources: async () => [],
   watchSources: async () => {},

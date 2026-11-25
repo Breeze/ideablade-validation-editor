@@ -83,37 +83,27 @@ async function expand(absolutePattern) {
 }
 
 /**
+ * Patterns (relative ones to `baseDir`), each made absolute, with the files it matches now, in the order given.
+ * `dir/**\/*.{ts,cs}` is a folder and its subfolders.
+ */
+async function expandPatterns(patterns, baseDir) {
+  return Promise.all(
+    patterns.map(async (p) => {
+      const pattern = path.resolve(baseDir ?? '', p);
+      return { pattern, files: await expand(pattern) };
+    }),
+  );
+}
+
+/**
  * The project, with absolute paths. `sources` are the entries as written (files or patterns); `sourceFiles` are the
- * files they stand for now, which the editor loads.
+ * files they stand for now, which the editor loads; `patterns` are the pattern entries with the files each matches.
  */
 async function readProject(projectPath) {
   const project = parseProject(projectPath, await fs.readFile(projectPath, 'utf8'));
   const sourceFiles = [...new Set((await Promise.all(project.sources.map(expand))).flat())];
-  return { ...project, sourceFiles };
-}
-
-/**
- * The source entries to write for the files the editor has loaded: the file's patterns that still match one of
- * them, then each loaded file no kept pattern covers. A file a pattern matches comes back on the next load even if it
- * was removed in the editor; to drop it, change the pattern.
- */
-async function sourceEntries(projectPath, files) {
-  let patterns = [];
-  try {
-    patterns = parseProject(projectPath, await fs.readFile(projectPath, 'utf8')).sources.filter(isPattern);
-  } catch {
-    patterns = [];
-  }
-  const kept = [];
-  const covered = new Set();
-  for (const pattern of patterns) {
-    const matches = (await expand(pattern)).filter((f) => files.includes(f));
-    if (matches.length) {
-      kept.push(pattern);
-      matches.forEach((f) => covered.add(f));
-    }
-  }
-  return [...kept, ...files.filter((f) => !covered.has(f))];
+  const patterns = await expandPatterns(project.sources.filter(isPattern));
+  return { ...project, sourceFiles, patterns };
 }
 
 /** The project file's text: relative paths, and the keys of `existingText` the editor doesn't manage kept as they were. */
@@ -150,7 +140,7 @@ function projectText(projectPath, project, existingText) {
   return JSON.stringify(json, null, 2).replace(/\n/g, eol) + eol;
 }
 
-/** Writes the project; `project.sources` are the loaded source files, written back as the file's patterns where they fit. */
+/** Writes the project; `project.sources` are the entries to write, absolute: files and patterns. */
 async function writeProject(projectPath, project) {
   let existingText;
   try {
@@ -158,8 +148,7 @@ async function writeProject(projectPath, project) {
   } catch {
     existingText = undefined;
   }
-  const sources = await sourceEntries(projectPath, project.sources);
-  await fs.writeFile(projectPath, projectText(projectPath, { ...project, sources }, existingText), 'utf8');
+  await fs.writeFile(projectPath, projectText(projectPath, project, existingText), 'utf8');
   return readProject(projectPath);
 }
 
@@ -172,28 +161,24 @@ function patternBase(absolutePattern) {
 }
 
 /**
- * Watches the folders the project's patterns point at, and calls `onChange` with the files they stand for whenever
- * that changes: a new DTO in a folder of DTOs, a deleted entity. Changes to the files themselves are the source
- * watcher's business (main.cjs); this only notices files appearing and disappearing. Returns a function that stops it.
+ * Watches the folders source patterns (absolute) point at, and calls `onChange` with each pattern's files whenever
+ * that changes: a new DTO in a folder of DTOs, a deleted entity. The patterns are the editor's, saved to a project or
+ * not. Changes to the files themselves are the source watcher's business (main.cjs); this only notices files
+ * appearing and disappearing. Returns a function that stops it.
  */
-async function watchProjectFolders(projectPath, onChange, settleMs = 300) {
-  const project = await readProject(projectPath);
-  let current = project.sourceFiles;
+async function watchPatterns(patterns, onChange, settleMs = 300) {
+  const key = (list) => JSON.stringify(list.map((p) => p.files));
+  let current = key(await expandPatterns(patterns));
   let timer;
   const check = async () => {
-    try {
-      const next = (await readProject(projectPath)).sourceFiles;
-      if (next.length !== current.length || next.some((f, i) => f !== current[i])) {
-        current = next;
-        onChange(next);
-      }
-    } catch {
-      // the project file is being rewritten, or is broken for now: its own watcher reports that
-    }
+    const next = await expandPatterns(patterns);
+    if (key(next) === current) return;
+    current = key(next);
+    onChange(next);
   };
   const watchers = [];
   const seen = new Set();
-  for (const pattern of project.sources.filter(isPattern)) {
+  for (const pattern of patterns.filter(isPattern)) {
     const { dir, recursive } = patternBase(pattern);
     const key = `${dir}|${recursive}`;
     if (seen.has(key)) continue;
@@ -215,4 +200,17 @@ async function watchProjectFolders(projectPath, onChange, settleMs = 300) {
   };
 }
 
-module.exports = { PROJECT_EXTENSION, isProjectFile, projectFileName, findProject, parseProject, projectText, readProject, writeProject, watchProjectFolders, patternBase };
+module.exports = {
+  PROJECT_EXTENSION,
+  isProjectFile,
+  isPattern,
+  projectFileName,
+  findProject,
+  parseProject,
+  projectText,
+  readProject,
+  writeProject,
+  expandPatterns,
+  watchPatterns,
+  patternBase,
+};

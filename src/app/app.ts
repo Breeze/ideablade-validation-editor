@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, injec
 
 import { modelKeys } from '../lib/doc';
 import { type ModelSource, fileName } from '../lib/sources';
+import type { PatternMatch } from './host';
 import { type DocFormat, EditorStore, FORMAT_LABELS, type MetadataDocument } from './editor-store';
 import { host } from './host';
 import { THEME_LABELS, type ThemeSetting, applyTheme, onSystemThemeChange } from './theme';
@@ -69,7 +70,8 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
       <button (click)="store.saveAll()" title="Ctrl+Alt+S" [disabled]="!store.dirty()">Save all</button>
       <button (click)="store.discardAll()" title="Discard all unsaved changes: the files are read again from disk (asks first)" [disabled]="!store.dirty()">Discard all</button>
       <span class="sep"></span>
-      <button (click)="store.addSources()" title="Ctrl+M">Add source…</button>
+      <button (click)="store.addSources()" title="Ctrl+M: Breeze metadata, TS or C# files">Add source…</button>
+      <button (click)="store.addSourceFolder()" title="Ctrl+Shift+M: the TS and C# files in a folder and its subfolders, as a pattern; new files are picked up as they appear">Add folder…</button>
       <button (click)="store.reloadSources()" [disabled]="!store.sources().length" title="F5">Reload sources</button>
       <span class="spacer"></span>
       <span class="file" [title]="store.filePath() ?? ''">{{ store.filePath() ?? (store.active() ? 'Not saved yet' : '') }}</span>
@@ -206,7 +208,37 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
         <!-- Pinned at the bottom: the sources and the settings -->
         <div class="sidebar-bottom">
         <div class="nav-title">Sources <span class="count">{{ store.sources().length }}</span></div>
-        @for (s of store.sources(); track s.path) {
+        @for (p of store.sourcePatterns(); track p.pattern) {
+          <div class="source pattern" [title]="p.pattern">
+            <button class="icon twisty" [title]="patternOpen(p.pattern) ? 'Fold' : 'Show its files'" [attr.aria-expanded]="patternOpen(p.pattern)" (click)="togglePattern(p.pattern)">{{ patternOpen(p.pattern) ? '▾' : '▸' }}</button>
+            <span class="badge kind">Folder</span>
+            <span class="pattern-count">{{ p.files.length }} {{ p.files.length === 1 ? 'file' : 'files' }}{{ patternErrors(p) ? ', ' + patternErrors(p) + ' not read' : '' }} · watched</span>
+            <span class="spacer"></span>
+            <button class="icon" title="Change the pattern" (click)="editingPattern.set(p.pattern)">✎</button>
+            <button class="icon" title="Remove the pattern and the sources it matched" (click)="store.removePattern(p.pattern)">✕</button>
+            @if (editingPattern() === p.pattern) {
+              <input class="pattern-input" [value]="store.patternLabel(p.pattern)" (keydown.enter)="commitPattern(p.pattern, $any($event.target).value)"
+                (keydown.escape)="editingPattern.set(undefined)" (blur)="commitPattern(p.pattern, $any($event.target).value)" />
+            } @else {
+              <div class="pattern-text" title="Its files are sources, and new ones are picked up as they appear. Double-click to change it." (dblclick)="editingPattern.set(p.pattern)">{{ store.patternLabel(p.pattern) }}</div>
+            }
+          </div>
+          @if (patternOpen(p.pattern)) {
+            @for (s of patternSources(p); track s.path) {
+              <div class="source in-pattern" [class.failed]="!!s.error" [title]="s.path">
+                <span class="badge kind">{{ s.kind === 'breeze' ? 'Breeze' : s.kind === 'ts' ? 'TS' : 'C#' }}</span>
+                <span class="source-name">{{ fileName(s.path) }}</span>
+                <div class="source-detail">
+                  @if (s.error) { <span class="error-text">{{ s.error }}</span> }
+                  @else { {{ sourceSummary(s) }} · read {{ time(s.loadedAt) }} · watched }
+                </div>
+              </div>
+            } @empty {
+              <div class="hint in-pattern">No files match yet. They're added as they appear.</div>
+            }
+          }
+        }
+        @for (s of looseSources(); track s.path) {
           <div class="source" [class.failed]="!!s.error" [title]="s.path">
             <span class="badge kind">{{ s.kind === 'breeze' ? 'Breeze' : s.kind === 'ts' ? 'TS' : 'C#' }}</span>
             <span class="source-name">{{ fileName(s.path) }}</span>
@@ -218,7 +250,9 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
             </div>
           </div>
         } @empty {
-          <div class="hint">Add Breeze metadata, or TypeScript / C# files with view models, DTOs and the app's own validators and expression functions, to pick them from lists. They're re-read when they change.</div>
+          @if (!store.sourcePatterns().length) {
+          <div class="hint">Add Breeze metadata, or TypeScript / C# files with view models, DTOs and the app's own validators and expression functions, to pick them from lists. They're re-read when they change. Add folder takes a folder's TS and C# files, and picks up new ones as they appear.</div>
+          }
         }
 
         <div class="nav-title">Settings</div>
@@ -371,6 +405,7 @@ export class App {
         case 'resetLayout': return this.resetLayout();
         case 'findInSidebar': return this.focusSearch();
         case 'addSource': return void this.store.addSources();
+        case 'addSourceFolder': return void this.store.addSourceFolder();
         case 'reloadSources': return void this.store.reloadSources();
         case 'openRecent': return void (arg && this.store.openPath(arg));
       }
@@ -838,6 +873,49 @@ export class App {
 
   setCustom(text: string): void {
     this.store.updateSettings({ customValidators: text.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean) });
+  }
+
+  // ---- Source patterns in the Sources list: folded by default, the files they match under them
+
+  private readonly openPatterns = signal<ReadonlySet<string>>(new Set());
+  readonly editingPattern = signal<string | undefined>(undefined);
+
+  patternOpen(pattern: string): boolean {
+    return this.openPatterns().has(pattern);
+  }
+
+  togglePattern(pattern: string): void {
+    this.openPatterns.update((set) => {
+      const next = new Set(set);
+      if (!next.delete(pattern)) next.add(pattern);
+      return next;
+    });
+  }
+
+  /** The sources a pattern matched. */
+  patternSources(p: PatternMatch): ModelSource[] {
+    const files = new Set(p.files.map((f) => f.toLowerCase()));
+    return this.store.sources().filter((s) => files.has(s.path.toLowerCase()));
+  }
+
+  patternErrors(p: PatternMatch): number {
+    return this.patternSources(p).filter((s) => s.error).length;
+  }
+
+  /** The sources added one by one: no pattern matches them. */
+  readonly looseSources = computed(() => this.store.sources().filter((s) => !this.store.fromPattern(s.path)));
+
+  async commitPattern(old: string, text: string): Promise<void> {
+    if (this.editingPattern() !== old) return; // Enter, then the blur it causes
+    this.editingPattern.set(undefined);
+    if (text.trim() && text.trim() !== this.store.patternLabel(old)) {
+      // Shown unfolded again if it was.
+      const index = this.store.sourcePatterns().findIndex((p) => p.pattern === old);
+      if ((await this.store.changePattern(old, text)) && this.patternOpen(old)) {
+        this.togglePattern(old);
+        this.togglePattern(this.store.sourcePatterns()[index].pattern);
+      }
+    }
   }
 
   sourceSummary(s: ModelSource): string {
