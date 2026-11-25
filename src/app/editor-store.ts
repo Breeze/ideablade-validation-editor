@@ -6,6 +6,7 @@ import type { CompletionEnv } from '../lib/completion';
 import { insertCsMetadata, newCsMetadataFile, pascalCaseFromFile, readCsMetadata, removeCsMetadata, writeCsMetadata } from '../lib/cs-metadata';
 import {
   type Json,
+  type JsonObject,
   type MetadataDoc,
   type Path,
   type RuleEntry,
@@ -19,6 +20,7 @@ import {
   setIn,
   stringify,
 } from '../lib/doc';
+import { mergeMaps, mergeModel } from '../lib/merge';
 import { type ModelSource, appFunctions, appValidators, buildCatalog, fileName, parseSource } from '../lib/sources';
 import { type Project, type ProjectState, type RegexTestSet, host } from './host';
 import type { ThemeSetting } from './theme';
@@ -976,6 +978,109 @@ export class EditorStore {
     this.removedMaps.update((all) => [...all, { path, format: doc.format(), name: doc.name()! }]);
     this.dropDocument(doc);
     this.status.set(`Removed the map ${doc.name()}; saving ${doc.fileLabel()} deletes it from the file`);
+  }
+
+  // ---- Moving model types and maps (dragging them in the sidebar)
+
+  /** A model type can go to another map when both can be edited. */
+  canMoveModel(fromId: string, name: string, toId: string): boolean {
+    const from = this.document(fromId);
+    const to = this.document(toId);
+    return !!from && !!to && from !== to && !from.readOnly() && !to.readOnly() && isPlainObject(from.doc()[name]);
+  }
+
+  /**
+   * Moves model type `name` to another map. When that map has the same model type, they're merged (lib/merge.ts), after
+   * asking. Both maps then have unsaved changes; nothing is written until they're saved.
+   */
+  async moveModel(fromId: string, name: string, toId: string): Promise<void> {
+    if (!this.canMoveModel(fromId, name, toId)) return;
+    const from = this.document(fromId)!;
+    const to = this.document(toId)!;
+    const model = from.doc()[name] as JsonObject;
+    const existing = to.doc()[name];
+    let moved = model;
+    if (isPlainObject(existing)) {
+      const merge = mergeModel(existing, model);
+      if (!(await this.confirmMerge(`${to.label()} already has ${name}. Merge them?`, [name], merge.kept, to.label()))) return;
+      moved = merge.model;
+    }
+    to.setDoc({ ...to.doc(), [name]: moved });
+    const { [name]: _, ...rest } = from.doc();
+    from.setDoc(rest);
+    this.selection.set({ docId: to.id, kind: 'model', name });
+    this.status.set(`${isPlainObject(existing) ? 'Merged' : 'Moved'} ${name} into ${to.label()}; saving both files writes the move`);
+  }
+
+  /** A map (of a TS or C# file) can go to another file when both can be edited. */
+  canMoveMap(fromId: string, toId: string): boolean {
+    const from = this.document(fromId);
+    const to = this.document(toId);
+    if (!from || !to || from.readOnly() || from.format() === 'json' || !from.path()) return false;
+    const toPath = to.path();
+    return !toPath || toPath.toLowerCase() !== from.path()!.toLowerCase();
+  }
+
+  /**
+   * Moves a TS or C# map to another file (the file `toId` is a map of). In a JSON file, or a TS or C# file with a map of
+   * the same name, it's merged into that map, after asking when model types are shared; otherwise it becomes a new map
+   * of that file, under its name. In its own file it goes like a map removed with its ✕ (when the file is saved); if
+   * it was the file's only map, it's left empty there instead, so the file still has one.
+   */
+  async moveMap(fromId: string, toId: string): Promise<void> {
+    if (!this.canMoveMap(fromId, toId)) return;
+    const from = this.document(fromId)!;
+    const toAny = this.document(toId)!;
+    const name = from.name()!;
+    const toPath = toAny.path();
+    const toMaps = toPath ? this.documents().filter((d) => d.path()?.toLowerCase() === toPath.toLowerCase()) : [toAny];
+    let target = toAny.format() === 'json' || !toPath ? toAny : toMaps.find((d) => d.name() === name);
+    if (target) {
+      if (target.readOnly()) {
+        this.status.set(`${target.label()} can't be edited here: ${target.readOnly()}`);
+        return;
+      }
+      const merge = mergeMaps(target.doc(), from.doc());
+      if (merge.merged.length && !(await this.confirmMerge(`${target.label()} already has ${merge.merged.join(', ')}. Merge the map ${name} into it?`, merge.merged, merge.kept, target.label()))) return;
+      target.setDoc(merge.map);
+    } else {
+      target = new MetadataDocument({ path: toPath, format: toAny.format(), name, doc: from.doc(), newInFile: true });
+      try {
+        await this.writeMap(this.diskText(toPath!) ?? (await host.readFile(toPath!)).text, target); // checks the name there
+      } catch (e) {
+        this.status.set(`Can't move ${name} to ${toAny.fileLabel()}: ${(e as Error).message}`);
+        return;
+      }
+      const docs = this.documents();
+      const after = docs.indexOf(toMaps[toMaps.length - 1]) + 1;
+      this.documents.set([...docs.slice(0, after), target, ...docs.slice(after)]);
+    }
+    // Out of its own file.
+    const fromPath = from.path()!;
+    const stays = this.documents().some((d) => d !== from && d !== target && d.path()?.toLowerCase() === fromPath.toLowerCase());
+    let left = '';
+    if (from.newInFile()) {
+      this.dropDocument(from);
+    } else if (stays) {
+      this.removedMaps.update((all) => [...all, { path: fromPath, format: from.format(), name }]);
+      this.dropDocument(from);
+    } else {
+      from.setDoc({});
+      left = `; it was the only map in ${from.fileLabel()}, so it's left empty there`;
+    }
+    this.selection.set({ docId: target.id, kind: 'document' });
+    this.status.set(`Moved the map ${name} to ${target.fileLabel()}${left}; saving both files writes the move`);
+  }
+
+  /** Asks before merging: which model types, and the settings where the target's value stays. */
+  private async confirmMerge(message: string, models: string[], kept: string[], target: string): Promise<boolean> {
+    const shown = kept.slice(0, 10).join(', ') + (kept.length > 10 ? `, and ${kept.length - 10} more` : '');
+    const detail = [
+      `The rules of ${models.join(', ')} are combined (a rule that's in both is kept once), and properties are merged property by property.`,
+      kept.length ? `Where both set these differently, ${target}'s value stays: ${shown}.` : 'No setting differs between them.',
+      'Nothing is written until you save.',
+    ].join('\n\n');
+    return (await host.confirm(message, detail, ['Merge', 'Cancel'])) === 0;
   }
 
   /** Takes a document out of the list, selecting the one before it if it was selected. */

@@ -6,6 +6,7 @@ import { checkDocument, checkRegexFlags, serverUnsupported } from './check';
 import { complete, typeFromText } from './completion';
 import { insertCsMetadata, newCsMetadataFile, pascalCaseFromFile, readCsMetadata, removeCsMetadata, writeCsMetadata } from './cs-metadata';
 import { type MetadataDoc, lineOfPath, mergeDocs, setIn, stringify } from './doc';
+import { mergeMaps, mergeModel } from './merge';
 import { COMMON_PATTERNS, analyzeRegex, regexTestKey, splitPattern, testSamples } from './regex';
 import { buildCatalog, camelCase, parseBreeze, parseCSharp, parseCSharpApp, parseSource } from './sources';
 import { runTest } from './tester';
@@ -333,6 +334,48 @@ describe('metadata in C#', () => {
     const verbatim = 'var json = @"{ ""A"": { ""properties"": {} } }";';
     expect(readCsMetadata(verbatim)[0]).toMatchObject({ name: 'json', json: { A: { properties: {} } } });
     expect(readCsMetadata(writeCsMetadata(verbatim, 'json', { B: {} }))[0].json).toEqual({ B: {} });
+  });
+});
+
+describe('moving model types and maps (merging)', () => {
+  const required = { name: 'required' };
+  const maxLength = { name: 'maxLength', context: { maxLength: 30 } };
+
+  it('merges a model type: rules combined without exact duplicates, properties merged, the target keeps its settings', () => {
+    const into = {
+      extends: 'Person',
+      validators: [{ name: 'expression', id: 'A', context: { expression: 'true' } }],
+      properties: { firstName: { displayName: 'First name', validators: [required] } },
+    };
+    const from = {
+      extends: 'Entity',
+      condition: '!model.isDeleted',
+      validators: [{ id: 'A', name: 'expression', context: { expression: 'true' } }, { name: 'expression', id: 'B', context: { expression: '1' } }],
+      properties: { firstName: { displayName: 'Given name', validators: [required, maxLength] }, lastName: { required: true } },
+    };
+    const { model, kept } = mergeModel(into, from);
+    expect(model.extends).toBe('Person');
+    expect(model.condition).toBe('!model.isDeleted');
+    expect((model.validators as unknown[]).length).toBe(2); // A once (key order doesn't matter), and B
+    expect(model.properties).toEqual({
+      firstName: { displayName: 'First name', validators: [required, maxLength] },
+      lastName: { required: true },
+    });
+    expect(kept).toEqual(['extends', 'properties.firstName.displayName']);
+  });
+
+  it('merges a whole map: new model types added, shared ones merged, global rules combined, the target\'s $schema kept', () => {
+    const into = { $schema: 'x', global: { validators: ['breeze'] }, A: { properties: { a: { required: true } } } };
+    const from = { $comment: 'other', global: { validators: ['breeze', 'audit'] }, A: { properties: { b: { required: true } } }, B: {} };
+    const { map, merged, kept } = mergeMaps(into, from);
+    expect(map).toEqual({
+      $schema: 'x',
+      global: { validators: ['breeze', 'audit'] },
+      A: { properties: { a: { required: true }, b: { required: true } } },
+      B: {},
+    });
+    expect(merged).toEqual(['A']);
+    expect(kept).toEqual([]);
   });
 });
 

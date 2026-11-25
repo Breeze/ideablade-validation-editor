@@ -87,7 +87,8 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
 
         <div class="nav-title">Metadata <span class="count">{{ store.documents().length }}</span></div>
         @for (g of fileGroups(); track g.key) {
-          <div class="doc" [class.active]="g.docs.includes(store.active()!)">
+          <div class="doc" [class.active]="g.docs.includes(store.active()!)" [class.drop-target]="dropOn() === g.key"
+            (dragover)="overFile($event, g)" (dragleave)="leave($event, g.key)" (drop)="dropOnFile($event, g)">
             <div class="doc-head" [title]="g.docs[0].path() ?? 'Not saved yet'" (click)="store.select({ docId: g.docs[0].id, kind: 'document' })">
               <span class="badge kind">{{ formatLabels[g.docs[0].format()] }}</span>
               <span class="doc-name">{{ g.docs[0].fileLabel() }}</span>
@@ -98,8 +99,11 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
               <button class="icon" title="Close: takes it out of the project, when there is one" (click)="$event.stopPropagation(); closeFile(g)">✕</button>
             </div>
             @for (d of g.docs; track d.id) {
+            <div class="map-block" [class.drop-target]="dropOn() === d.id" (dragover)="overMap($event, d)" (dragleave)="leave($event, d.id)" (drop)="dropOnMap($event, d)">
             @if (hasMapLines(g)) {
-              <div class="map-head" [class.selected]="isSelected(d)" [title]="'The map ' + d.name() + ' in ' + d.fileLabel()" (click)="store.select({ docId: d.id, kind: 'document' })">
+              <div class="map-head" [class.selected]="isSelected(d)" (click)="store.select({ docId: d.id, kind: 'document' })"
+                [title]="'The map ' + d.name() + ' in ' + d.fileLabel() + (d.readOnly() ? '' : '. Drag it onto another file to move it there')"
+                [attr.draggable]="!d.readOnly()" (dragstart)="dragMap($event, d)" (dragend)="dragEnd()">
                 <span class="map-name">{{ d.name() }}</span>
                 @if (d.newInFile()) { <span class="badge muted" title="Saving writes it into the file">new</span> }
                 @else if (d.dirty()) { <span class="dirty" title="Unsaved changes">●</span> }
@@ -119,7 +123,9 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
               <small>{{ d.format() === 'json' ? '$schema, $comment, global rules' : '$comment, global rules' }}</small>
             </button>
             @for (m of modelsOf(d); track m) {
-              <button class="nav-item sub" [class.selected]="isSelected(d, m)" (click)="store.select({ docId: d.id, kind: 'model', name: m })">
+              <button class="nav-item sub" [class.selected]="isSelected(d, m)" (click)="store.select({ docId: d.id, kind: 'model', name: m })"
+                [attr.draggable]="!d.readOnly()" (dragstart)="dragModel($event, d, m)" (dragend)="dragEnd()"
+                [title]="d.readOnly() ? m : m + ': drag it onto another map to move it there (merged if that map has it too)'">
                 <span>{{ m }}</span>
                 @if (extendsOf(d, m); as parent) { <small>extends {{ parent }}</small> }
                 <span class="spacer"></span>
@@ -139,6 +145,7 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
                 <button (click)="addModel(d.id)" [disabled]="!(newModels()[d.id] ?? '').trim()">Add</button>
               </div>
             }
+            </div>
             }
             @if (canAddMap(g)) {
               <div class="add-row add-map">
@@ -418,6 +425,74 @@ export class App {
 
   async addMap(g: FileGroup): Promise<void> {
     if (await this.store.addMap(g.docs[g.docs.length - 1], this.newMaps()[g.key] ?? '')) this.setNewMap(g.key, '');
+  }
+
+  // ---- Dragging model types onto maps, and maps onto files
+
+  /** What's being dragged in the sidebar, and where it would land (a map's id, or a file's key). */
+  readonly dragging = signal<{ kind: 'model'; docId: string; name: string } | { kind: 'map'; docId: string } | undefined>(undefined);
+  readonly dropOn = signal<string | undefined>(undefined);
+
+  dragModel(event: DragEvent, d: MetadataDocument, name: string): void {
+    this.dragging.set({ kind: 'model', docId: d.id, name });
+    event.dataTransfer?.setData('text/plain', name);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  }
+
+  dragMap(event: DragEvent, d: MetadataDocument): void {
+    this.dragging.set({ kind: 'map', docId: d.id });
+    event.dataTransfer?.setData('text/plain', d.name() ?? '');
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  }
+
+  dragEnd(): void {
+    this.dragging.set(undefined);
+    this.dropOn.set(undefined);
+  }
+
+  /** Over a map's lines: a model type can be dropped there. */
+  overMap(event: DragEvent, d: MetadataDocument): void {
+    const drag = this.dragging();
+    if (drag?.kind !== 'model' || !this.store.canMoveModel(drag.docId, drag.name, d.id)) return; // a map goes to the file
+    this.accept(event, d.id);
+  }
+
+  /** Over a file: a map can be dropped there; a model type too, on a file with one map (its header). */
+  overFile(event: DragEvent, g: FileGroup): void {
+    const drag = this.dragging();
+    if (drag?.kind === 'map' && this.store.canMoveMap(drag.docId, g.docs[0].id)) this.accept(event, g.key);
+    else if (drag?.kind === 'model' && g.docs.length === 1 && this.store.canMoveModel(drag.docId, drag.name, g.docs[0].id)) this.accept(event, g.docs[0].id);
+  }
+
+  private accept(event: DragEvent, target: string): void {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    this.dropOn.set(target);
+  }
+
+  /** Leaving a target (not just moving onto one of its children). */
+  leave(event: DragEvent, target: string): void {
+    const into = event.relatedTarget as Node | null;
+    if (this.dropOn() === target && !(into && (event.currentTarget as HTMLElement).contains(into))) this.dropOn.set(undefined);
+  }
+
+  dropOnMap(event: DragEvent, d: MetadataDocument): void {
+    const drag = this.dragging();
+    if (drag?.kind !== 'model') return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.dragEnd();
+    void this.store.moveModel(drag.docId, drag.name, d.id);
+  }
+
+  dropOnFile(event: DragEvent, g: FileGroup): void {
+    const drag = this.dragging();
+    if (!drag) return;
+    event.preventDefault();
+    this.dragEnd();
+    if (drag.kind === 'map') void this.store.moveMap(drag.docId, g.docs[0].id);
+    else if (g.docs.length === 1) void this.store.moveModel(drag.docId, drag.name, g.docs[0].id);
   }
 
   /** The file's ✕: closes each of its maps, asking about unsaved changes; stops at a Cancel. */

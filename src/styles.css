@@ -284,6 +284,9 @@ app-expression-input { display: block; margin-top: 2px; }
 .map-head:hover { background: var(--hover, var(--accent-soft)); }
 .map-head .map-name { font-family: var(--mono); font-size: 13px; color: var(--syn-variable); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .add-row.add-map { margin: 4px 0 8px 14px; }
+/* Dragging model types onto maps and maps onto files: where it would land */
+.drop-target { outline: 2px dashed var(--accent); outline-offset: -2px; background: var(--accent-soft); border-radius: 5px; }
+.map-head[draggable=true], .nav-item[draggable=true] { cursor: grab; }
 .add-row.add-map input { font-size: 13px; padding: 2px 6px; }
 .add-row.add-map button { font-size: 13px; padding: 1px 8px; white-space: nowrap; }
 .add-row.add-model input { font-size: 13px; padding: 2px 6px; }
