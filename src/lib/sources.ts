@@ -37,6 +37,12 @@ export interface SourceValidator {
   /** Setting types where the code says (C# GetValue<T>): 'integer', 'number', 'boolean', 'values', 'text'. */
   settingKinds?: Record<string, string>;
   description?: string;
+  /**
+   * The type of value its code works with, where the code shows it: the value parameter's declared type, a cast, or
+   * what it does with the value (`v % n`: number; `v.getDay()`: Date). Undefined when it takes any value (`String(v)`)
+   * or the code doesn't tell. See valueKind().
+   */
+  valueType?: string;
 }
 
 /** A function or value the application adds to the expression scope (expressionScope, AddExpressionFunction). */
@@ -254,6 +260,30 @@ function settingKind(clrType: string | undefined, many: boolean): string {
  * they read with `GetValue<T>("x")`, `GetValues<T>("x")` or `context["x"]`), `new ValidatorFactory("name", ...)`
  * registrations, and `AddExpressionFunction("name", ...)`.
  */
+/**
+ * The type of value a C# validator works with, from what ValidateCore / ValidateCoreAsync does with its value
+ * parameter: a conversion or cast (`Convert.ToDecimal(value)`, `(DateTime)value`, `value is string s`). Undefined when
+ * it turns any value into text (`value?.ToString()`, `Convert.ToString(value)`), when it shows more than one kind,
+ * or when it doesn't say.
+ */
+export function csValueType(body: string): string | undefined {
+  const name = /\bValidateCore(?:Async)?\s*\(\s*object\??\s+([A-Za-z_]\w*)/.exec(body)?.[1];
+  if (!name) return undefined;
+  const v = name.replace(/[$]/g, '\\$&');
+  if (new RegExp(`\\b${v}\\s*\\??\\.\\s*ToString\\s*\\(|Convert\\.ToString\\s*\\(\\s*${v}\\b|\\{\\s*${v}\\s*\\}`).test(body)) return undefined;
+  const found = new Set<string>();
+  // `value is string s`, `value is not string s` (the guard form) and `value as string` all say it's meant for a string.
+  const is = `\\b${v}\\s+is(?:\\s+not)?\\s+`;
+  const kinds: [string, RegExp][] = [
+    ['number', new RegExp(`Convert\\.To(?:Decimal|Double|Single|Int16|Int32|Int64|UInt32|UInt64)\\s*\\(\\s*${v}\\b|\\(\\s*(?:decimal|double|float|int|long|short)\\s*\\??\\s*\\)\\s*${v}\\b|${is}(?:decimal|double|float|int|long|short)\\b`)],
+    ['string', new RegExp(`\\(\\s*string\\s*\\??\\s*\\)\\s*${v}\\b|${is}string\\b|\\b${v}\\s+as\\s+string\\b`)],
+    ['DateTime', new RegExp(`Convert\\.ToDateTime\\s*\\(\\s*${v}\\b|\\(\\s*DateTime(?:Offset)?\\s*\\??\\s*\\)\\s*${v}\\b|${is}DateTime(?:Offset)?\\b`)],
+    ['bool', new RegExp(`Convert\\.ToBoolean\\s*\\(\\s*${v}\\b|\\(\\s*bool\\s*\\??\\s*\\)\\s*${v}\\b|${is}bool\\b`)],
+  ];
+  for (const [type, re] of kinds) if (re.test(body)) found.add(type);
+  return found.size === 1 ? [...found][0] : undefined;
+}
+
 export function parseCSharpApp(text: string): { validators: SourceValidator[]; functions: SourceFunction[] } {
   const code = blankCommentsAndStrings(text); // for structure; strings and comments are read from `text`
   const withStrings = text.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
@@ -276,6 +306,7 @@ export function parseCSharpApp(text: string): { validators: SourceValidator[]; f
       settings: keys,
       settingKinds: Object.fromEntries(keys.map((k) => [k, settings.get(k)!])),
       description: xmlSummaryBefore(text, match.index!),
+      valueType: csValueType(body),
     });
   }
 

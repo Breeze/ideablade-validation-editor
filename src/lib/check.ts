@@ -16,7 +16,7 @@ import {
 } from 'ideablade-validation';
 
 import validateSchema from '../generated/schema-validator';
-import { BUILT_IN_NAMES } from './catalog';
+import { BUILT_IN_NAMES, appliesTo, kindsText, validatorCatalog } from './catalog';
 import {
   type GroupEntry,
   type Json,
@@ -141,6 +141,8 @@ export function checkDocument(doc: MetadataDoc, options: CheckOptions): Issue[] 
 
   // 2a. The rules themselves, with exact locations.
   const knownValidators = new Set([...BUILT_IN_NAMES, ...options.customValidators]);
+  /** Every validator with what it's for: built-in, the application's, and those named in the settings. */
+  const validators = validatorCatalog(options.appValidators ?? [], options.customValidators);
   const workspace = options.workspace?.length ? options.workspace : [doc];
   const view = mergeDocs(workspace); // all open documents, as the library merges them
   const modelTypes = new Set([...modelKeys(view), ...options.catalog.keys()]);
@@ -185,6 +187,22 @@ export function checkDocument(doc: MetadataDoc, options: CheckOptions): Issue[] 
         add('error', [...path, 'async'], `'${name}' is registered as a synchronous validator (${app.sourceFile ?? 'source'}); remove async.`, 'library');
       } else if (!isAsync && !app.sync) {
         add('error', namePath, `'${name}' is registered as an asynchronous validator (${app.sourceFile ?? 'source'}); set async.`, 'library');
+      }
+    }
+    // A validator for another kind of value than the property holds (pattern on a true/false): most likely a slip.
+    if (modelType && propertyName) {
+      const type = sourceTypeOf(modelType, propertyName);
+      const kind = valueKind(type);
+      const info = validators.find((x) => x.name === name);
+      if (kind && info?.appliesTo && !appliesTo(info, kind)) {
+        add(
+          'warning',
+          namePath,
+          `'${name}' is for ${kindsText(info.appliesTo)}, but '${modelType}.${propertyName}' is ${article(kind)} (${type}): it most likely doesn't apply to it.`,
+          'models',
+        );
+      } else if (name === 'date' && kind === 'text' && !(isPlainObject(rule) && isPlainObject(rule.context) && rule.context['allowString'])) {
+        add('warning', namePath, `'${modelType}.${propertyName}' is text (${type}): 'date' accepts text only with allowString; without it every value fails.`, 'models');
       }
     }
     if (typeof rule === 'string' || !isPlainObject(rule)) return;

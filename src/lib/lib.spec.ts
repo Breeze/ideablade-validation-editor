@@ -5,7 +5,7 @@ import tempHireMetadata from '../../samples/temphire.validation.metadata.json';
 import { checkDocument, checkRegexFlags, serverUnsupported } from './check';
 import { complete, typeFromText } from './completion';
 import { insertCsMetadata, newCsMetadataFile, pascalCaseFromFile, readCsMetadata, removeCsMetadata, writeCsMetadata } from './cs-metadata';
-import { type MetadataDoc, lineOfPath, mergeDocs, setIn, stringify } from './doc';
+import { type Json, type MetadataDoc, lineOfPath, mergeDocs, setIn, stringify } from './doc';
 import { mergeMaps, mergeModel } from './merge';
 import { COMMON_PATTERNS, analyzeRegex, regexTestKey, splitPattern, testSamples } from './regex';
 import { buildCatalog, camelCase, parseBreeze, parseCSharp, parseCSharpApp, parseSource, valueKind } from './sources';
@@ -243,6 +243,50 @@ describe("the app's validators and functions", () => {
     const changed = setIn(doc, ['Address', 'properties', 'city', 'validators'], ['loginAvailable']) as MetadataDoc;
     const issues = checkDocument(changed, { customValidators: ['loginAvailable'], catalog, appValidators: app }).filter((i) => i.severity === 'error');
     expect(issues.map((i) => i.message)).toEqual([expect.stringContaining('registered as an asynchronous validator')]);
+  });
+
+  it('know the type of value a C# validator works with, from what ValidateCore does with it', () => {
+    const cls = (name: string, body: string) =>
+      `public sealed class ${name}Validator : Validator { public ${name}Validator(string? g, ValidationContextBase? c) : base("${name}", g, c) { }
+         protected override bool ValidateCore(object? value, ValidatorFunctionContext context) => ${body}; }`;
+    const { validators } = parseCSharpApp(
+      [
+        cls('multipleOf', 'value is null || Convert.ToDecimal(value) % 2 == 0'),
+        cls('shortText', 'value is not string s || s.Length < 5'),
+        cls('weekday', 'value is null || ((DateTime)value).DayOfWeek != DayOfWeek.Sunday'),
+        cls('words', "value?.ToString()?.Split(' ').Length < 10"),
+        cls('present', 'value != null'),
+      ].join('\n'),
+    );
+    expect(Object.fromEntries(validators.map((v) => [v.name, v.valueType]))).toEqual({
+      multipleOf: 'number',
+      shortText: 'string',
+      weekday: 'DateTime',
+      words: undefined,
+      present: undefined,
+    });
+  });
+
+  it("warns about a validator meant for another kind of value than the property's", () => {
+    // Address.primary is a Boolean in TempHire's Breeze metadata, Address.city a String.
+    const rules = (property: string, validators: unknown[]) => setIn(doc, ['Address', 'properties', property, 'validators'], validators as Json) as MetadataDoc;
+    const app = [
+      { name: 'multipleOf', async: false, sync: true, settings: [], sourceFile: 'app.ts', valueType: 'number' },
+      { name: 'maxWords', async: false, sync: true, settings: [], sourceFile: 'app.ts' },
+    ];
+    const warnings = (changed: MetadataDoc) =>
+      checkDocument(changed, { customValidators: ['multipleOf', 'maxWords'], catalog, appValidators: app })
+        .filter((i) => i.severity === 'warning' && i.path[1] === 'properties')
+        .map((i) => i.message);
+    expect(warnings(rules('primary', ['pattern', 'required', 'compare']))).toEqual([
+      "'pattern' is for text or numbers, but 'Address.primary' is true/false (Boolean): it most likely doesn't apply to it.",
+    ]);
+    expect(warnings(rules('primary', [{ name: 'maxLength', context: { maxLength: 5 } }]))[0]).toContain("'maxLength' is for text");
+    expect(warnings(rules('city', ['multipleOf', 'maxWords']))).toEqual([
+      "'multipleOf' is for numbers, but 'Address.city' is text (String): it most likely doesn't apply to it.",
+    ]);
+    expect(warnings(rules('city', ['date']))).toEqual([expect.stringContaining("'date' accepts text only with allowString")]);
+    expect(warnings(rules('city', [{ name: 'date', context: { allowString: true } }, 'email', 'range']))).toEqual([]);
   });
 
   it('checks regular expression flags', () => {

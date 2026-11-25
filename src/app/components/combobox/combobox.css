@@ -34,7 +34,8 @@
 .combo-option { display: flex; gap: 8px; align-items: baseline; padding: 3px 8px; border-radius: 3px; cursor: pointer; white-space: nowrap; }
 .combo-option.active { background: var(--accent-soft); }
 .combo-value { overflow: hidden; text-overflow: ellipsis; }
-.combo-option small { margin-left: auto; padding-left: 12px; font-family: var(--mono); }
+.combo-option small { margin-left: auto; padding-left: 12px; }
+.combo-option small.warn { color: var(--warning); }
 /* The letters that match what was typed */
 .combo-option mark { background: transparent; color: var(--accent); font-weight: 600; }
 .combo-note { padding: 4px 8px 2px; color: var(--muted); font-size: 12px; white-space: normal; max-width: 420px; }

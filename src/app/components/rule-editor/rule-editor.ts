@@ -1,6 +1,6 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal, effect, untracked } from '@angular/core';
 
-import { COMMON_SETTINGS, OPERATORS, type SettingInfo } from '../../../lib/catalog';
+import { COMMON_SETTINGS, OPERATORS, type SettingInfo, validatorChoices } from '../../../lib/catalog';
 import { REGEX_FLAGS } from '../../../lib/check';
 import type { ExpressionSite } from '../../../lib/completion';
 import { type Json, type JsonObject, type Path, type ValidatorObject, isPlainObject } from '../../../lib/doc';
@@ -49,6 +49,13 @@ export class RuleEditor {
 
   /** Whether the card is unfolded. */
   readonly open = signal(false);
+
+  constructor() {
+    // An issue clicked in the Issues tab that's in this card: open it, so the issue can be seen.
+    effect(() => {
+      if (this.store.revealsInside(this.path())) untracked(() => this.open.set(true));
+    });
+  }
   readonly operators = OPERATORS;
   readonly commentValue = commentValue;
   /** Why the "Other settings" text wasn't applied (it isn't a JSON object), until it's fixed. */
@@ -66,6 +73,8 @@ export class RuleEditor {
   /** What the catalog knows about the validator: description, default message, settings. */
   readonly info = computed(() => this.store.validatorInfo(this.rule().name));
   readonly validatorNames = this.store.validatorNames;
+  /** The validators as choices: what each is for, and ⚠ on those not meant for this property's kind of value. */
+  readonly validatorChoices = computed(() => validatorChoices(this.store.validators(), this.store.propertyKind(this.modelType(), this.propertyName())));
   /** Whether the editor knows the validator; an unknown name is shown in red. */
   readonly known = computed(() => this.validatorNames().includes(this.rule().name));
   /** The rule's `context` settings, or none. */

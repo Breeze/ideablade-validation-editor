@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, signal, effect, untracked } from '@angular/core';
 
 import { type Json, type Path, type PropertyEntry, isPlainObject, renameKey } from '../../../lib/doc';
 import { EditorStore } from '../../services/editor-store';
@@ -31,6 +31,13 @@ export class PropertyEditor {
   readonly name = input.required<string>();
   /** Whether the card is unfolded. It starts closed, so a long list of properties stays easy to scan. */
   readonly open = signal(false);
+
+  constructor() {
+    // An issue clicked in the Issues tab that's in this card: open it, so the issue can be seen.
+    effect(() => {
+      if (this.store.revealsInside(this.path())) untracked(() => this.open.set(true));
+    });
+  }
   readonly commentValue = commentValue;
 
   /** Where the property is in the document. */

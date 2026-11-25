@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked } from '@angular/core';
 
 import { DocumentEditor } from './components/document-editor/document-editor';
 import { ModelEditor } from './components/model-editor/model-editor';
@@ -7,7 +7,7 @@ import { Sidebar } from './components/sidebar/sidebar';
 import { StartPage } from './components/start-page/start-page';
 import { StatusBar } from './components/status-bar/status-bar';
 import { Toolbar } from './components/toolbar/toolbar';
-import { EditorStore } from './services/editor-store';
+import { type DocIssue, EditorStore } from './services/editor-store';
 import { host } from './services/host';
 import type { DocFormat } from './services/metadata-document';
 import { MetadataTree } from './services/metadata-tree';
@@ -77,6 +77,12 @@ export class App {
     });
     onSystemThemeChange(() => applyTheme(this.store.settings().theme));
 
+    // An issue clicked in the Issues tab: shown where it is in the forms, once the cards on its way have opened.
+    effect(() => {
+      const request = this.store.revealRequest();
+      if (request) untracked(() => setTimeout(() => this.revealIssue(request.issue), 120));
+    });
+
     // The application menu's commands (and their shortcuts).
     host.onMenu((command, arg) => {
       switch (command) {
@@ -106,6 +112,29 @@ export class App {
       // Back to the model selected last time, or the first one.
       await this.store.restoreSelection();
     });
+  }
+
+  /**
+   * Scrolls to an issue's message in the forms and highlights it: the inline issues at the deepest place on its path
+   * that shows it. An issue the forms don't show anywhere (a key they don't edit) goes to the JSON view instead.
+   */
+  private revealIssue(issue: DocIssue): void {
+    const candidates = [...document.querySelectorAll<HTMLElement>('main app-inline-issues[data-issue-path]')]
+      .map((el) => ({ el, path: JSON.parse(el.dataset['issuePath']!) as (string | number)[] }))
+      .filter(({ path }) => path.length <= issue.path.length && path.every((k, i) => issue.path[i] === k))
+      .map(({ el, path }) => ({ path, line: [...el.querySelectorAll<HTMLElement>('.inline-issue')].find((l) => l.textContent?.trim() === issue.message) }))
+      .filter((c) => c.line)
+      .sort((a, b) => b.path.length - a.path.length);
+    const line = candidates[0]?.line;
+    if (!line) {
+      this.store.showInJson(issue.path);
+      return;
+    }
+    line.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    // Only this one highlighted (the last one clicked may still be), and the animation restarted for the same one again.
+    document.querySelectorAll('main .inline-issue.flash').forEach((l) => l.classList.remove('flash'));
+    void line.offsetWidth;
+    line.classList.add('flash');
   }
 
   // ---- Splitters: the sidebar's and the right pane's widths, dragged, kept with the window's place

@@ -1,7 +1,7 @@
 // The validators the editor offers: the built-in ones and their context settings (from the library's
 // docs/validators.md), the application's own (found in the TS / C# sources), and names listed in the settings.
 
-import type { SourceValidator } from './sources';
+import { type SourceValidator, type ValueKind, valueKind } from './sources';
 
 export type SettingKind = 'boolean' | 'integer' | 'text' | 'bound' | 'expression' | 'property' | 'op' | 'values' | 'regex' | 'flags';
 
@@ -22,6 +22,11 @@ export interface ValidatorInfo {
   /** For the application's validators: registered as async / sync. */
   async?: boolean;
   sync?: boolean;
+  /**
+   * The kinds of value it's meant for; undefined: any. The built-in ones' as their code in the library treats values
+   * (minLength fails for anything but text, pattern tests the value as text); the application's as read from its code.
+   */
+  appliesTo?: readonly ValueKind[];
 }
 
 const rangeSettings: SettingInfo[] = [
@@ -86,6 +91,59 @@ export const BUILT_IN_VALIDATORS: ValidatorInfo[] = [
   { name: 'breeze', description: "Breeze's own validators (ideablade-validation/breeze). Usually global.", settings: [] },
 ];
 
+/**
+ * The kinds of value the built-in validators are meant for, from the library's code (js/src/validators): the length
+ * validators fail for anything but text; the pattern ones test the value as text (so a number works, true/false and
+ * dates don't mean anything); currency, numeric and integer take a number or text holding one; range compares
+ * numbers, dates, or text holding a number; date takes a date, or text with allowString. The rest take any value.
+ */
+const APPLIES_TO: Record<string, readonly ValueKind[]> = {
+  minLength: ['text'],
+  maxLength: ['text'],
+  pattern: ['text', 'number'],
+  email: ['text'],
+  zipCode: ['text', 'number'],
+  phone: ['text', 'number'],
+  social: ['text', 'number'],
+  fein: ['text'],
+  currency: ['number', 'text'],
+  numeric: ['number', 'text'],
+  integer: ['number', 'text'],
+  range: ['number', 'date', 'text'],
+  numericRange: ['number', 'text'],
+  dateRange: ['date', 'text'],
+  date: ['date', 'text'],
+};
+for (const v of BUILT_IN_VALIDATORS) if (APPLIES_TO[v.name]) v.appliesTo = APPLIES_TO[v.name];
+
+/** "text", "numbers or text": the kinds a validator is for, in a sentence. */
+export function kindsText(kinds: readonly ValueKind[]): string {
+  const words: Record<ValueKind, string> = { text: 'text', number: 'numbers', 'true/false': 'true/false values', date: 'dates' };
+  const list = kinds.map((k) => words[k]);
+  return list.length > 1 ? `${list.slice(0, -1).join(', ')} or ${list[list.length - 1]}` : list[0];
+}
+
+/** Whether a validator is meant for a property holding this kind of value (unknown kinds and "any" validators fit). */
+export function appliesTo(info: ValidatorInfo | undefined, kind: ValueKind | undefined): boolean {
+  return !info?.appliesTo || !kind || info.appliesTo.includes(kind);
+}
+
+/**
+ * The validators as choices for a property's rules: each one meant for some kinds only says which ("for text"), and
+ * one that isn't meant for the property's kind is marked, so it stands out before it's picked. `kind` undefined (a
+ * model-level rule, or a property no source declares): just what each is for.
+ */
+export function validatorChoices(validators: readonly ValidatorInfo[], kind: ValueKind | undefined): { value: string; detail?: string; warn?: boolean }[] {
+  return validators.map((v) => {
+    const fits = appliesTo(v, kind);
+    return {
+      value: v.name,
+      detail: !v.appliesTo ? undefined : fits ? `for ${kindsText(v.appliesTo)}` : `⚠ not for ${kindsText([kind!])}`,
+      warn: !fits || undefined,
+    };
+  });
+}
+
 export const BUILT_IN_NAMES = BUILT_IN_VALIDATORS.map((v) => v.name);
 
 export const OPERATORS = ['==', '===', '!=', '!==', '<', '<=', '>', '>='];
@@ -115,6 +173,7 @@ export function validatorCatalog(app: readonly (SourceValidator & { sourceFile?:
       origin: v.sourceFile,
       async: v.async,
       sync: v.sync,
+      appliesTo: valueKind(v.valueType) ? [valueKind(v.valueType)!] : undefined,
     });
   }
   for (const name of customNames) {

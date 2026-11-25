@@ -11,6 +11,8 @@ import { EditorStore } from '../../services/editor-store';
  */
 @Component({
   selector: 'app-inline-issues',
+  // Where its issues are, so a clicked issue can be found in the page (App.revealIssue).
+  host: { '[attr.data-issue-path]': 'pathKey()' },
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './inline-issues.html',
   styleUrl: './inline-issues.css',
@@ -22,4 +24,6 @@ export class InlineIssues {
   /** Only the issues at exactly this path, not those of anything below it (which show under their own fields). */
   readonly exact = input(false);
   readonly issues = computed(() => this.store.issuesAt(this.path(), this.exact()));
+  /** The path as an attribute value. */
+  readonly pathKey = computed(() => JSON.stringify(this.path()));
 }

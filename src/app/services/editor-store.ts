@@ -21,7 +21,7 @@ import {
   stringify,
 } from '../../lib/doc';
 import { mergeMaps, mergeModel } from '../../lib/merge';
-import { type ModelSource, appFunctions, appValidators, buildCatalog, fileName, parseSource } from '../../lib/sources';
+import { type ModelSource, type ValueKind, appFunctions, appValidators, buildCatalog, fileName, parseSource, valueKind } from '../../lib/sources';
 import { type PatternMatch, type Project, type ProjectState, type RegexTestSet, host } from './host';
 import type { ThemeSetting } from './theme';
 import { type DocFormat, FORMAT_LABELS, MetadataDocument, NEW_FILE_NAMES, NEW_TS_NAME, formatOf } from './metadata-document';
@@ -245,6 +245,22 @@ export class EditorStore {
   /** Every validator the editor offers: built-in, the application's, and those named in the settings. */
   readonly validators = computed(() => validatorCatalog(this.appValidators(), this.settings().customValidators));
   readonly validatorNames = computed(() => this.validators().map((v) => v.name));
+
+  /**
+   * The kind of value a property holds (text, number, true/false, date), from its type in the model sources, on the
+   * model type or one it extends; undefined when no source declares it, or its type isn't one of those.
+   */
+  propertyKind(modelType: string | undefined, propertyName: string | undefined): ValueKind | undefined {
+    const seen = new Set<string>();
+    for (let type = modelType; type && propertyName && !seen.has(type); ) {
+      seen.add(type);
+      const declared = this.catalog().get(type)?.properties.find((p) => p.name === propertyName)?.type;
+      if (declared !== undefined) return valueKind(declared);
+      const entry = this.view()[type];
+      type = isPlainObject(entry) && typeof entry['extends'] === 'string' ? entry['extends'] : undefined;
+    }
+    return undefined;
+  }
   /** Validator names besides the built-in ones, for the checks and the tester's stand-ins. */
   readonly extraValidatorNames = computed(() => [...new Set([...this.appValidators().map((v) => v.name), ...this.settings().customValidators])]);
   readonly completionEnv = computed<CompletionEnv>(() => ({ doc: this.view(), catalog: this.catalog(), functions: this.appFunctions() }));
@@ -534,6 +550,12 @@ export class EditorStore {
   }
 
   /** Selects what an issue is about and asks the JSON view to scroll to it. */
+  /**
+   * An issue clicked in the Issues tab: selects what it's about (its model type, or the map's own settings), and asks
+   * for it to be shown where it is in the forms: the property and rule cards on its path open themselves
+   * (revealsInside), and the shell scrolls to its message and highlights it (App). One that has no place in the forms
+   * is shown in the JSON view instead (showInJson).
+   */
   focusIssue(issue: DocIssue): void {
     const first = issue.path[0];
     if (typeof first === 'string' && first !== 'global' && first !== '$comment' && first !== '$schema') {
@@ -541,7 +563,21 @@ export class EditorStore {
     } else {
       this.selection.set({ docId: issue.docId, kind: 'document' });
     }
-    this.focusPath.set([...issue.path]);
+    this.revealRequest.update((r) => ({ issue, n: (r?.n ?? 0) + 1 }));
+  }
+
+  /** The issue last clicked, to be shown in the forms; `n` counts the clicks, so the same issue clicked again shows again. */
+  readonly revealRequest = signal<{ issue: DocIssue; n: number } | undefined>(undefined);
+
+  /** Whether the issue last clicked is at or below `path`: a card there opens, so the issue can be seen. */
+  revealsInside(path: Path): boolean {
+    const issue = this.revealRequest()?.issue;
+    return !!issue && issue.docId === this.active()?.id && issue.path.length >= path.length && path.every((k, i) => issue.path[i] === k);
+  }
+
+  /** An issue with no place in the forms (a key the forms don't edit): its line in the JSON view. */
+  showInJson(path: Path): void {
+    this.focusPath.set([...path]);
   }
 
   issuesAt(path: Path, exact = false): Issue[] {

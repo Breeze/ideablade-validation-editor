@@ -14,7 +14,7 @@
     <div class="combo-option" role="option" [class.active]="i === active()" [attr.aria-selected]="i === active()"
       (mousedown)="$event.preventDefault(); pick(m.value)" (mousemove)="active.set(i)">
       <span class="combo-value">@for (p of m.parts; track $index) {@if (p.match) {<mark>{{ p.text }}</mark>} @else {{{ p.text }}}}</span>
-      @if (m.detail) { <small>{{ m.detail }}</small> }
+      @if (m.detail) { <small [class.warn]="m.warn">{{ m.detail }}</small> }
     </div>
   } @empty {
     @if (!total()) {

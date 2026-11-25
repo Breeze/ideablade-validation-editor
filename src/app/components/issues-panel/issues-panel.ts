@@ -4,8 +4,9 @@ import { type DocIssue, EditorStore } from '../../services/editor-store';
 
 /**
  * The Issues tab of the side pane: the issues of every open document (from the schema, the library and the model
- * sources), grouped by document when more than one has any. Clicking one selects what it's about and shows its line in
- * the JSON view (`EditorStore.focusIssue`). It doesn't edit anything.
+ * sources), grouped by document when more than one has any. Clicking one takes you to it: its model type is selected,
+ * the cards it's in open, and its message under the field is scrolled to and highlighted; one the forms don't show
+ * goes to its line in the JSON view (`EditorStore.focusIssue`, App.revealIssue). It doesn't edit anything.
  */
 @Component({
   selector: 'app-issues-panel',

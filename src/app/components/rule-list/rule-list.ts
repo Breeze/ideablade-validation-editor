@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 
+import { validatorChoices } from '../../../lib/catalog';
 import { type GroupEntry, type Json, type Path, type RuleEntry, isGroup, moveItem } from '../../../lib/doc';
 import { regexTestKey } from '../../../lib/regex';
 import { EditorStore } from '../../services/editor-store';
@@ -42,6 +43,8 @@ export class RuleList {
   });
   /** Every validator the editor offers (built-in, the application's, those named in the settings), for the "validator…" field. */
   readonly validatorNames = this.store.validatorNames;
+  /** The validators as choices: what each is for, and ⚠ on those not meant for this property's kind of value. */
+  readonly validatorChoices = computed(() => validatorChoices(this.store.validators(), this.store.propertyKind(this.modelType(), this.propertyName())));
   readonly isGroup = isGroup;
   readonly comment = (rule: GroupEntry) => commentText(rule.$comment);
 

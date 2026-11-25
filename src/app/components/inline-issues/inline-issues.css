@@ -1,2 +1,9 @@
 /* .inline-issue and its severities are in styles.css (shared section): the regex editor, the rule editor and the
    tester panel show messages in the same style. */
+
+/* A clicked issue, scrolled to: outlined for a moment so the eye finds it (App.revealIssue adds the class). */
+.inline-issue.flash { animation: issue-flash 1.6s ease-out; }
+@keyframes issue-flash {
+  0%, 40% { outline: 2px solid var(--accent); outline-offset: 2px; }
+  100% { outline: 2px solid transparent; outline-offset: 2px; }
+}

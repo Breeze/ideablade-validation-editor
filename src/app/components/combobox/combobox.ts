@@ -4,12 +4,15 @@ import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, input
 export interface ComboOption {
   value: string;
   detail?: string;
+  /** The note is a warning (a validator not meant for the property's kind of value): shown in the warning colour. */
+  warn?: boolean;
 }
 
 /** A choice that matches what's typed, with the matching parts marked for highlighting. */
 interface Match {
   value: string;
   detail?: string;
+  warn?: boolean;
   parts: { text: string; match: boolean }[];
 }
 

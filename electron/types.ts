@@ -53,6 +53,8 @@ export interface SourceValidator {
   /** Context settings its code reads: ctx.factor, ... */
   settings: string[];
   description?: string;
+  /** The type of value the validator's code works with, where it shows (see valueKindsOf in typescript/app-validators.ts). */
+  valueType?: string;
 }
 
 /** A function or value the application adds to the expression scope. */

@@ -19,7 +19,7 @@
   <div class="rule-body">
     <!-- The validator: any name, the known ones suggested, with the catalog's description -->
     <label>Validator
-      <app-combobox [value]="rule().name" [options]="validatorNames()" (valueChange)="set('name', $event)" />
+      <app-combobox [value]="rule().name" [options]="validatorChoices()" (valueChange)="set('name', $event)" />
       @if (info(); as info) {
         <small>{{ info.description }}@if (info.defaultMessage) { Default message: <code>{{ info.defaultMessage }}</code>}</small>
       }

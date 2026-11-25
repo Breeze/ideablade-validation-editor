@@ -94,6 +94,50 @@ function messageIn(node: ts.Node): string | undefined {
   return message;
 }
 
+/** Methods that only a Date has, a string has, or a number has: calling one on the value says what it is. */
+const DATE_METHODS = new Set(['getTime', 'getDay', 'getDate', 'getMonth', 'getFullYear', 'getHours', 'getMinutes', 'toISOString', 'toDateString']);
+const STRING_METHODS = new Set(['trim', 'trimStart', 'trimEnd', 'toLowerCase', 'toUpperCase', 'split', 'startsWith', 'endsWith', 'padStart', 'padEnd', 'charAt', 'localeCompare', 'normalize']);
+const NUMBER_METHODS = new Set(['toFixed', 'toPrecision']);
+const ARITHMETIC = new Set([ts.SyntaxKind.PercentToken, ts.SyntaxKind.AsteriskToken, ts.SyntaxKind.SlashToken, ts.SyntaxKind.MinusToken, ts.SyntaxKind.AsteriskAsteriskToken]);
+
+/**
+ * The type of value a validator function works with, so the editor can tell when a rule is on a property of another
+ * kind: the value parameter's declared type (`(login: string) => ...`), or else what the body does with it: arithmetic
+ * (`v % ctx.factor`) or Math / Number.isInteger: a number; Date methods (`v.getDay()`): a Date; string methods
+ * (`v.trim()`): a string. Undefined when it makes text of any value (`String(v)`, `${v}`), shows more than one
+ * kind, or doesn't say: such a validator counts as taking any value.
+ */
+function valueTypeOf(fn: ts.Node | undefined, sf: ts.SourceFile): string | undefined {
+  if (!fn || !(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn))) return undefined;
+  const param = fn.parameters[0];
+  if (!param) return undefined;
+  if (param.type) return param.type.getText(sf);
+  if (!ts.isIdentifier(param.name)) return undefined;
+  const name = param.name.text;
+  const isValue = (n: ts.Node | undefined): boolean => !!n && ts.isIdentifier(n) && n.text === name;
+  const found = new Set<string>();
+  let anyValue = false;
+  const visit = (n: ts.Node): void => {
+    if (ts.isCallExpression(n)) {
+      const callee = n.expression.getText(sf);
+      if (callee === 'String' && isValue(n.arguments[0])) anyValue = true;
+      else if (/^(Math\.\w+|Number\.is(Integer|Finite|SafeInteger))$/.test(callee) && n.arguments.some(isValue)) found.add('number');
+    } else if (ts.isTemplateSpan(n) && isValue(n.expression)) {
+      anyValue = true;
+    } else if (ts.isBinaryExpression(n) && ARITHMETIC.has(n.operatorToken.kind) && (isValue(n.left) || isValue(n.right))) {
+      found.add('number');
+    } else if (ts.isPropertyAccessExpression(n) && isValue(n.expression)) {
+      const method = n.name.text;
+      if (DATE_METHODS.has(method)) found.add('Date');
+      else if (STRING_METHODS.has(method)) found.add('string');
+      else if (NUMBER_METHODS.has(method)) found.add('number');
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(fn.body);
+  return anyValue || found.size !== 1 ? undefined : [...found][0];
+}
+
 /** A validator class as found: `name` is the one it passes to super(...), if it does. */
 type ValidatorClass = Omit<SourceValidator, 'name'> & { name?: string };
 
@@ -117,6 +161,7 @@ export function parseTypeScriptApp(text: string, fileName = 'app.ts'): { validat
       existing.defaultMessage ??= v.defaultMessage;
       existing.description ??= v.description;
       existing.settings = [...new Set([...existing.settings, ...v.settings])];
+      existing.valueType ??= v.valueType;
     }
   };
 
@@ -126,9 +171,14 @@ export function parseTypeScriptApp(text: string, fileName = 'app.ts'): { validat
       const base = node.heritageClauses?.find((c) => c.token === ts.SyntaxKind.ExtendsKeyword)?.types[0]?.expression.getText(sf);
       if (base && /Validator$/.test(base)) {
         let name: string | undefined;
+        let valueType: string | undefined;
+        // super('name', group, (value, ctx) => ..., ...): the name, and the function's value type
         const findSuper = (n: ts.Node): void => {
           if (name) return;
-          if (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.SuperKeyword) name = stringValue(n.arguments[0]);
+          if (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.SuperKeyword) {
+            name = stringValue(n.arguments[0]);
+            valueType = valueTypeOf(n.arguments[2], sf);
+          }
           ts.forEachChild(n, findSuper);
         };
         findSuper(node);
@@ -139,6 +189,7 @@ export function parseTypeScriptApp(text: string, fileName = 'app.ts'): { validat
           defaultMessage: messageIn(node),
           settings: settingsUsed(node, contextParameterNames(node)),
           description: jsDocOf(node, sf),
+          valueType,
         });
       }
     }
@@ -193,6 +244,7 @@ export function parseTypeScriptApp(text: string, fileName = 'app.ts'): { validat
           defaultMessage: stringValue(node.arguments[2]),
           settings: node.arguments[1] ? settingsUsed(node.arguments[1], contextParameterNames(node.arguments[1])) : [],
           description: jsDocOf(node, sf),
+          valueType: valueTypeOf(node.arguments[1], sf),
         });
       }
       if (callee === 'provideExpressionScope') scopeObject(returnedObject(node.arguments[0]), 'provideExpressionScope');
@@ -212,6 +264,7 @@ export function parseTypeScriptApp(text: string, fileName = 'app.ts'): { validat
           defaultMessage: cls?.defaultMessage,
           settings: cls?.settings ?? settingsUsed(fn, contextParameterNames(fn)),
           description: jsDocOf(node, sf) ?? cls?.description ?? (cls ? undefined : created ? `Creates ${created}.` : undefined),
+          valueType: cls?.valueType,
         });
       }
       const scope = props.get('expressionScope');
