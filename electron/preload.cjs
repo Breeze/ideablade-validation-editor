@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('editorHost', {
   getLayout: () => ipcRenderer.invoke('ui:get-layout'),
   saveLayout: (layout) => ipcRenderer.send('ui:set-layout', layout),
   setProjectOpen: (open) => ipcRenderer.send('project:open-state', open),
+  setUnsaved: (unsaved) => ipcRenderer.send('app:unsaved-state', unsaved),
   projectClosed: () => ipcRenderer.send('project:closed'),
   close: () => ipcRenderer.send('app:close'),
   getRecentProjects: () => ipcRenderer.invoke('app:recent-projects'),

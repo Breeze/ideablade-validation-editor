@@ -137,6 +137,13 @@ ipcMain.on('project:open-state', (_e, open) => {
   projectOpen = !!open;
   updateMenu();
 });
+// File → Discard All Unsaved Changes is there while something is unsaved.
+let hasUnsaved = false;
+ipcMain.on('app:unsaved-state', (_e, unsaved) => {
+  if (hasUnsaved === !!unsaved) return;
+  hasUnsaved = !!unsaved;
+  updateMenu();
+});
 ipcMain.on('project:closed', () => clearLastProject(windowStateFile()));
 ipcMain.handle('project:read', async (_e, projectPath) => {
   const project = await readProject(projectPath);
@@ -328,6 +335,7 @@ const buildMenu = () => Menu.buildFromTemplate([
       { label: '&Save', accelerator: 'CmdOrCtrl+S', click: sendMenu('save') },
       { label: 'Save &As…', accelerator: 'CmdOrCtrl+Shift+S', click: sendMenu('saveAs') },
       { label: 'Save A&ll', accelerator: 'CmdOrCtrl+Alt+S', click: sendMenu('saveAll') },
+      { label: 'Discard All &Unsaved Changes…', enabled: hasUnsaved, click: sendMenu('discardAll') },
       { type: 'separator' },
       { label: 'Add &source (Breeze, TS, C#)…', accelerator: 'CmdOrCtrl+M', click: sendMenu('addSource') },
       { label: 'Reloa&d model sources', accelerator: 'F5', click: sendMenu('reloadSources') },

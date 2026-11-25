@@ -121,6 +121,8 @@ export interface EditorHost {
   /** The panes' widths as the user left them (the splitters), kept with the window's place. */
   getLayout(): Promise<PaneLayout | undefined>;
   saveLayout(layout: PaneLayout): void;
+  /** Whether anything is unsaved, for File → Discard All Unsaved Changes. */
+  setUnsaved(unsaved: boolean): void;
   /** Whether a project is open, for File → Close Project. */
   setProjectOpen(open: boolean): void;
   /** The project was closed: nothing to reopen at the next start. */
@@ -172,6 +174,7 @@ const browserHost: EditorHost = {
   saveSelection: () => {},
   getLayout: async () => undefined,
   saveLayout: () => {},
+  setUnsaved: () => {},
   setProjectOpen: () => {},
   projectClosed: () => {},
   close: () => window.close(),

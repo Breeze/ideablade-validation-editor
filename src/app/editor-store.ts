@@ -378,6 +378,8 @@ export class EditorStore {
     effect(() => void host.watchProject(watched() ? watched().split('\n')[0] : undefined));
     // File → Close Project only while there's one.
     effect(() => host.setProjectOpen(!!this.project()));
+    // File → Discard All Unsaved Changes only while there's something to discard.
+    effect(() => host.setUnsaved(this.dirty()));
     // The sidebar selection is remembered for this user (with the window's place, not in the project file), once the
     // files are open and the previous one has been restored.
     effect(() => {
@@ -1185,6 +1187,45 @@ export class EditorStore {
     this.afterSave(doc);
     this.rememberSources();
     return true;
+  }
+
+  /**
+   * File → Discard All Unsaved Changes: after asking, every file with unsaved changes is read again from disk (as when
+   * it changed outside the editor and you chose Reload): its maps as saved, maps removed or moved away back, maps added
+   * since gone. The project file too, with its list of files, sources and settings. Untitled documents with changes close.
+   */
+  async discardAll(): Promise<void> {
+    if (!this.dirty()) return;
+    const project = this.projectDirty() ? this.project() : undefined;
+    const paths = unique([
+      ...this.documents().filter((d) => d.dirty() && d.path()).map((d) => d.path()!),
+      ...this.removedMaps().map((r) => r.path),
+    ]);
+    const untitled = this.documents().filter((d) => d.dirty() && !d.path());
+    const what = [
+      ...paths.map((p) => fileName(p)),
+      ...untitled.map((d) => `${d.label()} (${FORMAT_LABELS[d.format()]}, not saved yet: it closes)`),
+      ...(project ? [`the project ${projectLabel(project.path)}`] : []),
+    ];
+    const choice = await host.confirm(
+      'Discard all unsaved changes?',
+      `Read again from disk, as last saved:\n${what.map((w) => `• ${w}`).join('\n')}\n\nThis can't be undone.`,
+      ['Discard', 'Cancel'],
+    );
+    if (choice !== 0) return;
+    // The project first: it says which metadata files are open, and its settings and test values.
+    if (project) await this.discardFile(project.path);
+    for (const path of paths) await this.discardFile(path);
+    for (const doc of untitled) this.dropDocument(doc);
+    this.status.set(`Discarded the unsaved changes (${what.length} ${what.length === 1 ? 'file' : 'files'})`);
+  }
+
+  private async discardFile(path: string): Promise<void> {
+    try {
+      await this.reloadFromDisk(path, (await host.readFile(path)).text);
+    } catch (e) {
+      this.status.set(`Could not read ${fileName(path)} again: ${(e as Error).message}`);
+    }
   }
 
   async saveAll(): Promise<void> {

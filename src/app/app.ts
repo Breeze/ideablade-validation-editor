@@ -60,6 +60,7 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
       <button (click)="store.save()" title="Ctrl+S" [disabled]="!store.active()" [class.primary]="store.active()?.dirty() || store.removalsIn(store.active()?.path()).length > 0">Save</button>
       <button (click)="store.saveAs()" title="Ctrl+Shift+S: as JSON, TypeScript or C#" [disabled]="!store.active()">Save as…</button>
       <button (click)="store.saveAll()" title="Ctrl+Alt+S" [disabled]="!store.dirty()">Save all</button>
+      <button (click)="store.discardAll()" title="Discard all unsaved changes: the files are read again from disk (asks first)" [disabled]="!store.dirty()">Discard all</button>
       <span class="sep"></span>
       <button (click)="store.addSources()" title="Ctrl+M">Add source…</button>
       <button (click)="store.reloadSources()" [disabled]="!store.sources().length" title="F5">Reload sources</button>
@@ -310,6 +311,7 @@ export class App {
         case 'save': return void this.store.save();
         case 'saveAs': return void this.store.saveAs();
         case 'saveAll': return void this.store.saveAll();
+        case 'discardAll': return void this.store.discardAll();
         case 'closeProject': return void this.store.closeProject();
         case 'resetLayout': return this.resetLayout();
         case 'addSource': return void this.store.addSources();
