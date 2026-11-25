@@ -67,7 +67,7 @@ A desktop editor for [IdeaBlade Validation](https://github.com/Breeze/ideablade-
 - **Try it:** validate a sample object against the metadata as it is now, with the library's real service. You can give it a store (entities by type) for `store('Type')` expressions. Validators the editor doesn't have (`breeze`, custom ones) pass, and async validators don't run.
 - **Files changed outside the editor:** the open metadata files and the project file are watched too, but unlike sources they aren't reloaded on their own, since you may be in the middle of editing them. When one changes on disk (in another editor, another session, a `git pull`), a dialog names the changed files, says which have unsaved changes that reloading would discard, and asks whether to **Reload** or **Keep the editor's version**. A file deleted on disk only gets a note in the status bar; saving writes it again. Saving checks first: if the file on disk is no longer what the editor read or last saved, it warns that saving would overwrite those changes and offers **Overwrite**, **Reload from disk** or **Cancel**. This holds for every save, metadata and project file alike, including the `regexTests` the editor writes to the project. The editor's own saves don't count as outside changes.
 - **Dark theme** by default, with VS Code's Dark+ colours, also for the code in expressions. Settings → Theme switches to Light, or to Follow Windows; the window frame, menus and dialogs follow.
-- **The editor opens where you left it:** the window's size, position and maximised state, and what was selected in the sidebar (a model, or a file's settings) for each project, or for the first metadata file without one. These are your settings, so they're kept in the app's data folder (`window-state.json`), not in the project file. A position that's no longer on a screen, after unplugging a monitor, is replaced by a centred window of the same size. With nothing remembered, the first model in the list is selected.
+- **The editor opens where you left it:** the project you used last (opened, found next to a metadata file, or created), when it's started without files on its command line, as from the Start menu; the window's size, position and maximised state; and what was selected in the sidebar (a model, or a file's settings) for each project, or for the first metadata file without one. These are your settings, so they're kept in the app's data folder (`window-state.json`), not in the project file. A position that's no longer on a screen, after unplugging a monitor, is replaced by a centred window of the same size. A project that has been moved or deleted since isn't reopened: the editor starts with a new document. With nothing remembered, the first model in the list is selected.
 
 | Several files: JSON and TS side by side | Code completion in an expression | The application's own validators |
 |---|---|---|
@@ -94,7 +94,7 @@ npm start
 
 While working on the editor, `npm run dev` runs `ng serve` (port 4300) with live reload and Electron pointed at it.
 
-A project file, metadata files (JSON, TS or C#) and sources can be given on the command line. TempHire's Angular client has a project file at its root:
+A project file, metadata files (JSON, TS or C#) and sources can be given on the command line; without any, the editor reopens the project used last. TempHire's Angular client has a project file at its root:
 
 ```powershell
 npm run build

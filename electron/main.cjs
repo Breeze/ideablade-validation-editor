@@ -5,7 +5,7 @@ const path = require('node:path');
 const { withTypeScriptModels } = require('./typescript-models.cjs');
 const { readTsMetadata, writeTsMetadata, newTsMetadataFile } = require('./typescript-metadata.cjs');
 const { PROJECT_EXTENSION, projectFileName, findProject, readProject, writeProject, watchProjectFolders } = require('./project.cjs');
-const { loadWindowState, trackWindowState, getSelection, setSelection } = require('./window-state.cjs');
+const { loadWindowState, trackWindowState, getSelection, setSelection, getLastProject, setLastProject } = require('./window-state.cjs');
 
 let win;
 let forceClose = false;
@@ -96,8 +96,17 @@ ipcMain.handle('ts:new-metadata', (_e, name, json) => newTsMetadataFile(name, js
 
 // The project file (*.ivproj, see project.cjs): the renderer works with absolute paths.
 ipcMain.handle('project:find', (_e, filePath) => findProject(filePath));
-ipcMain.handle('project:read', (_e, projectPath) => readProject(projectPath));
-ipcMain.handle('project:write', (_e, projectPath, project) => writeProject(projectPath, project));
+// A project read or written (opened, found next to a metadata file, created) becomes the one to reopen next time.
+ipcMain.handle('project:read', async (_e, projectPath) => {
+  const project = await readProject(projectPath);
+  setLastProject(windowStateFile(), projectPath);
+  return project;
+});
+ipcMain.handle('project:write', async (_e, projectPath, project) => {
+  const result = await writeProject(projectPath, project);
+  setLastProject(windowStateFile(), projectPath);
+  return result;
+});
 
 // The folders the project's patterns point at: files appearing or disappearing there (a new DTO, a deleted entity)
 // are sent to the renderer as the patterns' new list of files. One project at a time; called again when it changes.
@@ -216,6 +225,11 @@ ipcMain.handle('app:startup-args', () => {
   const args = process.argv.slice(app.isPackaged ? 1 : 2);
   const files = args.filter((a) => !a.startsWith('-') && /\.(json|ts|cs|ivproj)$/i.test(a)).map((a) => path.resolve(a));
   const sources = args.filter((a) => a.startsWith('--source=')).map((a) => path.resolve(a.slice('--source='.length)));
+  // Without files to open, the project used last, if it's still there.
+  if (!files.length && !sources.length) {
+    const last = getLastProject(windowStateFile());
+    if (last) files.push(last);
+  }
   return { files, sources };
 });
 function sendMenu(command) {

@@ -4,7 +4,7 @@ const { describe, it } = require('node:test');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { loadWindowState, isVisible, getSelection, setSelection, DEFAULT_WINDOW_SIZE } = require('./window-state.cjs');
+const { loadWindowState, isVisible, getSelection, setSelection, getLastProject, setLastProject, DEFAULT_WINDOW_SIZE } = require('./window-state.cjs');
 
 const screens = [
   { workArea: { x: 0, y: 0, width: 1920, height: 1040 } },
@@ -44,6 +44,20 @@ describe('the window state', () => {
     for (let i = 0; i < 60; i++) setSelection(file, `k${i}`, { kind: 'document' });
     assert.equal(getSelection(file, 'C:/a/temphire.ivproj'), undefined); // the oldest go after 50
     assert.deepEqual(getSelection(file, 'k59'), { kind: 'document' });
+    fs.rmSync(file, { force: true });
+  });
+
+  it('remembers the last project, next to the window state, while its file is still there', () => {
+    fs.rmSync(file, { force: true });
+    assert.equal(getLastProject(file), undefined);
+    save({ x: 10, y: 10, width: 1600, height: 1000, maximized: false });
+    const project = path.join(os.tmpdir(), `vews-${process.pid}.ivproj`);
+    fs.writeFileSync(project, '{}');
+    setLastProject(file, project);
+    assert.equal(getLastProject(file), project);
+    assert.equal(loadWindowState(file, screens).width, 1600); // the bounds are still there
+    fs.rmSync(project);
+    assert.equal(getLastProject(file), undefined); // moved or deleted: nothing to reopen
     fs.rmSync(file, { force: true });
   });
 

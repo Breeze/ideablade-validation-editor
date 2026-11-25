@@ -94,4 +94,25 @@ function setSelection(file, key, selection) {
   });
 }
 
-module.exports = { loadWindowState, trackWindowState, isVisible, getSelection, setSelection, DEFAULT_WINDOW_SIZE: DEFAULT };
+// The project used last, reopened when the editor starts without files on its command line. A user setting too.
+
+/** The last project's path, if there is one and its file is still there. */
+function getLastProject(file) {
+  const last = readFile(file).lastProject;
+  return typeof last === 'string' && fs.existsSync(last) ? last : undefined;
+}
+
+function setLastProject(file, projectPath) {
+  updateFile(file, (state) => ({ ...state, lastProject: projectPath }));
+}
+
+module.exports = {
+  loadWindowState,
+  trackWindowState,
+  isVisible,
+  getSelection,
+  setSelection,
+  getLastProject,
+  setLastProject,
+  DEFAULT_WINDOW_SIZE: DEFAULT,
+};
