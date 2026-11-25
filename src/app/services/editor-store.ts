@@ -801,7 +801,7 @@ export class EditorStore {
     if (!(await this.checkBeforeWrite(path))) return false;
     const format = doc.format();
     if (format === 'json') {
-      const text = doc.invalidText()?.text ?? doc.jsonText();
+      const text = doc.jsonFileText(doc.invalidText()?.text);
       await host.saveFile(path, text);
       this.rememberDiskText(path, text);
       doc.markSaved(text);
