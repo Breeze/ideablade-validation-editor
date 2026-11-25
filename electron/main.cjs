@@ -304,7 +304,10 @@ function recentProjectsMenu() {
 /** Builds the menu again, for the current recent projects. */
 function updateMenu() {
   Menu.setApplicationMenu(buildMenu());
+  // The page shown when nothing is open lists them too.
+  if (win && !win.isDestroyed()) win.webContents.send('recent-projects', getRecentProjects(windowStateFile()));
 }
+ipcMain.handle('app:recent-projects', () => getRecentProjects(windowStateFile()));
 
 const buildMenu = () => Menu.buildFromTemplate([
   {

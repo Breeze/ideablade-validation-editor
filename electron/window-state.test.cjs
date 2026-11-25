@@ -84,6 +84,8 @@ describe('the window state', () => {
     for (const p of projects) fs.writeFileSync(p, '{}');
     for (const p of projects) setLastProject(file, p);
     assert.deepEqual(getRecentProjects(file), projects.slice(2).reverse()); // p11 … p2
+    setLastProject(file, projects[4].split(path.sep).join('/')); // forward slashes: the same file, moves up
+    assert.equal(getRecentProjects(file).length, 10);
     setLastProject(file, projects[5].toUpperCase()); // the same file, written differently: moves up, not added
     assert.equal(getRecentProjects(file).length, 10);
     assert.equal(getRecentProjects(file)[0], projects[5].toUpperCase());

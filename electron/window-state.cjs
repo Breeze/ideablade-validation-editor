@@ -104,17 +104,31 @@ function getLastProject(file) {
   return typeof last === 'string' && fs.existsSync(last) ? last : undefined;
 }
 
-/** The recent projects, the most recent first, without the ones that have been moved or deleted since. */
+/** A path as compared: resolved (one kind of slash) and in lower case, as Windows file names are. */
+const samePathKey = (p) => path.resolve(p).toLowerCase();
+
+/**
+ * The recent projects, the most recent first, each once (however its path was written), without the ones that have
+ * been moved or deleted since.
+ */
 function getRecentProjects(file) {
   const recent = readFile(file).recentProjects;
-  return Array.isArray(recent) ? recent.filter((p) => typeof p === 'string' && fs.existsSync(p)) : [];
+  if (!Array.isArray(recent)) return [];
+  const seen = new Set();
+  return recent
+    .filter((p) => {
+      if (typeof p !== 'string' || seen.has(samePathKey(p)) || !fs.existsSync(p)) return false;
+      seen.add(samePathKey(p));
+      return true;
+    })
+    .map((p) => path.resolve(p));
 }
 
-/** Makes a project the last one, and the first of the recent ones (once: paths are compared ignoring case). */
+/** Makes a project the last one, and the first of the recent ones (once, however its path was written). */
 function setLastProject(file, projectPath) {
   updateFile(file, (state) => {
     const before = Array.isArray(state.recentProjects) ? state.recentProjects : [];
-    const others = before.filter((p) => typeof p === 'string' && p.toLowerCase() !== projectPath.toLowerCase());
+    const others = before.filter((p) => typeof p === 'string' && samePathKey(p) !== samePathKey(projectPath));
     return { ...state, lastProject: projectPath, recentProjects: [projectPath, ...others].slice(0, MAX_RECENT_PROJECTS) };
   });
 }

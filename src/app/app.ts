@@ -192,6 +192,17 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
             <p>Open a project (<code>*.ivproj</code>), or File → Open Recent Project, or validation metadata: JSON files, TypeScript files with a <code>ModelValidationMetadataMap</code>, or C# files with the metadata as a JSON string. Open several to edit them side by side; the checks see them together, as the library merges them.</p>
             <button class="primary" (click)="store.open()">Open…</button>
             @for (f of newFormats; track f.format) { <button (click)="newFile(f.format)" [title]="f.hint">New {{ f.label }}</button> }
+            @if (recentProjects().length) {
+              <div class="recent">
+                <div class="nav-title">Recent projects</div>
+                @for (p of recentProjects(); track p) {
+                  <button class="recent-project" [title]="'Open ' + p" (click)="store.openPath(p)">
+                    <span class="recent-name">{{ fileName(p) }}</span>
+                    <span class="recent-folder">{{ folderOf(p) }}</span>
+                  </button>
+                }
+              </div>
+            }
           </div>
         } @else if (selectedModel(); as name) {
           @if (store.readOnly(); as reason) { <div class="banner">Read-only: {{ reason }}</div> }
@@ -243,6 +254,8 @@ export class App {
     { format: 'cs', label: 'C#', hint: 'A .cs file with the JSON as a constant and the typed map parsed from it' },
   ];
   readonly newMenuOpen = signal(false);
+  /** File → Open Recent Project's list, also shown on the page when nothing is open. */
+  readonly recentProjects = signal<string[]>([]);
   /** The code tab is named after what the selected document is saved as. */
   readonly codeTabLabel = computed(() => ({ ts: 'TypeScript', cs: 'C#' })[this.store.active()?.format() as 'ts' | 'cs'] ?? 'JSON');
   /** What's typed in each metadata file's "model type…" field, by document. */
@@ -268,6 +281,8 @@ export class App {
       if (layout?.side) this.sideWidth.set(layout.side);
     });
     window.addEventListener('resize', () => this.windowWidth.set(window.innerWidth));
+    void host.getRecentProjects().then((paths) => this.recentProjects.set(paths));
+    host.onRecentProjects((paths) => this.recentProjects.set(paths));
     effect(() => host.setTitle(this.store.title()));
     // The colour theme: <html data-theme>, and Electron's native theme for the window frame, menus and dialogs.
     effect(() => {
@@ -348,6 +363,11 @@ export class App {
   /** Closes the New menu when focus leaves its button (after a click on a choice has gone through). */
   closeNewMenuSoon(): void {
     setTimeout(() => this.newMenuOpen.set(false), 150);
+  }
+
+  /** The folder a project is in, for the recent list. */
+  folderOf(path: string): string {
+    return path.replace(/[\\/][^\\/]*$/, '');
   }
 
   setNewModel(docId: string, value: string): void {

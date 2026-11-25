@@ -126,6 +126,9 @@ export interface EditorHost {
   /** The project was closed: nothing to reopen at the next start. */
   projectClosed(): void;
   close(): void;
+  /** The recent projects (File → Open Recent Project), the latest first, and each change to them. */
+  getRecentProjects(): Promise<string[]>;
+  onRecentProjects(handler: (paths: string[]) => void): () => void;
   /** A menu command, with its argument where it has one (File → Open Recent Project: the project's path). */
   onMenu(handler: (command: string, arg?: string) => void): () => void;
   onCloseRequested(handler: () => void): () => void;
@@ -172,6 +175,8 @@ const browserHost: EditorHost = {
   setProjectOpen: () => {},
   projectClosed: () => {},
   close: () => window.close(),
+  getRecentProjects: async () => [],
+  onRecentProjects: () => () => {},
   onMenu: () => () => {},
   onCloseRequested: () => () => {},
 };

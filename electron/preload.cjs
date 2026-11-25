@@ -39,6 +39,12 @@ contextBridge.exposeInMainWorld('editorHost', {
   setProjectOpen: (open) => ipcRenderer.send('project:open-state', open),
   projectClosed: () => ipcRenderer.send('project:closed'),
   close: () => ipcRenderer.send('app:close'),
+  getRecentProjects: () => ipcRenderer.invoke('app:recent-projects'),
+  onRecentProjects: (handler) => {
+    const listener = (_e, paths) => handler(paths);
+    ipcRenderer.on('recent-projects', listener);
+    return () => ipcRenderer.removeListener('recent-projects', listener);
+  },
   onMenu: (handler) => {
     const listener = (_e, command, arg) => handler(command, arg);
     ipcRenderer.on('menu', listener);
