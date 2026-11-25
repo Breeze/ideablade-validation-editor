@@ -2,6 +2,8 @@
 
 A desktop editor for [IdeaBlade Validation](https://github.com/Breeze/ideablade-validation)'s JSON validation metadata (`validation.metadata.json`), so the rules no longer have to be written by hand. It's a first drop: a working prototype, not a finished product.
 
+> **Note:** What you see here was written in a few hours with the help of [Claude Code](https://claude.com/claude-code). The code hasn't been fully reviewed and vetted. It's meant as a developer tool, not a fully fleshed-out production app.
+
 ![Editing a model-level rule](docs/screenshots/model-editor.png)
 
 ## What it does
@@ -80,6 +82,10 @@ A desktop editor for [IdeaBlade Validation](https://github.com/Breeze/ideablade-
 | TempHire's project file, with its pattern's values to try | The JSON view: folding, search, VS Code's colours | A file changed outside the editor |
 |---|---|---|
 | ![](docs/screenshots/project.png) | ![](docs/screenshots/json-editor.png) | ![](docs/screenshots/outside-change.png) |
+
+| A TS file with a second map (Add map), shown as the file | The start page, with the recent projects | New: JSON, TypeScript or C# |
+|---|---|---|
+| ![](docs/screenshots/ts-maps.png) | ![](docs/screenshots/start-page.png) | ![](docs/screenshots/new-menu.png) |
 
 ## Running it
 
