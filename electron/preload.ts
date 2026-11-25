@@ -1,15 +1,17 @@
 // The preload script: the renderer's only access to the system. It runs in the renderer before the page, sandboxed,
 // and exposes `window.editorHost` (src/app/services/host.ts, interface EditorHost) through the context bridge:
-// opening and saving files, reading TypeScript, the project file, the user's settings and a few window functions. Each
-// function is a message to the main process (its handlers are in ipc/ and window/; main.ts maps them), `invoke` for
-// those that answer and `send` for those that don't; the `on…` functions subscribe to the main process's messages and
-// return a function that unsubscribes.
+// opening and saving files, reading TypeScript, the project file, the user's settings, updates and a few window
+// functions. Each function is a message to the main process (its handlers are in ipc/ and window/; main.ts maps
+// them), `invoke` for those that answer and `send` for those that don't; the `on…` functions subscribe to the main
+// process's messages and return a function that unsubscribes.
 //
 // Sandboxed preloads can require only 'electron' and a few Node built-ins, not other files: the import of the
 // payloads' types below (types.ts) is type-only, so it compiles to nothing. This file must stay next to main.ts, so it
 // is compiled to dist-electron/preload.js, where paths.ts looks for it.
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import type { JsonObject, PaneLayout, PatternMatch, ProjectToWrite, ReadFile, SavedFolds, SavedSelection } from './types';
+import type {
+  JsonObject, PaneLayout, PatternMatch, ProjectToWrite, ReadFile, SavedFolds, SavedSelection, UpdateSettings, UpdateStatus,
+} from './types';
 
 /** Subscribes `handler` to a message from the main process; returns a function that unsubscribes it. */
 function subscribe<A extends unknown[]>(channel: string, handler: (...args: A) => void): () => void {
@@ -62,6 +64,14 @@ contextBridge.exposeInMainWorld('editorHost', {
   saveFolds: (key: string, folds: SavedFolds) => ipcRenderer.send('ui:set-folds', key, folds),
   getLayout: () => ipcRenderer.invoke('ui:get-layout'),
   saveLayout: (layout: PaneLayout) => ipcRenderer.send('ui:set-layout', layout),
+
+  // Updates (updates/updater.ts): the two settings, where an update stands, installing it, release pages.
+  getUpdateSettings: () => ipcRenderer.invoke('updates:get-settings'),
+  setUpdateSettings: (change: Partial<UpdateSettings>) => ipcRenderer.invoke('updates:set-settings', change),
+  getUpdateStatus: () => ipcRenderer.invoke('updates:get-status'),
+  onUpdateStatus: (handler: (status: UpdateStatus) => void) => subscribe('updates:status', handler),
+  installUpdate: () => ipcRenderer.send('updates:install'),
+  openReleasePage: (url: string) => ipcRenderer.send('updates:open-release-page', url),
 
   // State the menu follows (File → Close Project, Discard All Unsaved Changes), and closing.
   setProjectOpen: (open: boolean) => ipcRenderer.send('project:open-state', open),

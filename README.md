@@ -17,7 +17,16 @@ Download the installer for your system from the newest release on the **[Release
 | **Linux** (x64) | `IdeaBlade-Validation-Editor-<version>-linux-x86_64.AppImage` | `chmod +x` it and run it. |
 | **Linux**, Debian or Ubuntu | `IdeaBlade-Validation-Editor-<version>-linux-amd64.deb` | `sudo apt install ./IdeaBlade-Validation-Editor-<version>-linux-amd64.deb` |
 
-To update, install the newer version over the one you have; your settings and recent projects stay. To work on the editor itself, see [Running it](#running-it) below.
+To work on the editor itself, see [Running it](#running-it) below.
+
+### Updates
+
+From the first release after 0.1.0-alpha.2, the editor looks for a newer release a few seconds after it starts and every 4 hours, and **Help → Check for Updates…** looks right away (and says so when there's nothing new).
+
+- **Windows** and the **AppImage** update themselves: the new version downloads in the background (the status bar shows how far along it is), then the status bar offers *Restart to update*, which asks about unsaved changes first. Without that, it's installed when you quit.
+- **macOS** and the **.deb** can't (the Mac app isn't signed with an Apple certificate, which macOS requires for updates): the status bar says a new version is available, and *Download* opens its release page. Install it over the one you have, as above.
+
+Two settings in the sidebar's Settings decide what happens: *Check for updates automatically* (Help → Check for Updates… works either way) and *Include pre-releases* (alphas, betas and release candidates; while the editor is in alpha, there is nothing else). Both are on by default. Settings and recent projects stay through updates. Versions up to 0.1.0-alpha.2 don't update themselves: install the newer version over them once.
 
 ## What it does
 
@@ -136,7 +145,7 @@ The `samples/` folder has TempHire's validation metadata and its Breeze metadata
 npm test
 ```
 
-Unit tests (Vitest, through Angular's test builder) cover the Breeze and C# readers, metadata in C#, the checks on TempHire's metadata, completion, and the tester. The main process's code (metadata in TypeScript, the project file, the settings file) is tested by `electron/**/*.test.ts`, next to the code they test and compiled with the rest of the main process and run with Node's test runner on **Electron's own Node** (24.22 in Electron 45), because that's what it runs on in the app, whatever `.node-version` says: `.node-version` only picks the Node that builds the app and runs the tooling.
+Unit tests (Vitest, through Angular's test builder) cover the Breeze and C# readers, metadata in C#, the checks on TempHire's metadata, completion, and the tester. The main process's code (metadata in TypeScript, the project file, the settings file, picking the newest release) is tested by `electron/**/*.test.ts`, next to the code they test and compiled with the rest of the main process and run with Node's test runner on **Electron's own Node** (24.22 in Electron 45), because that's what it runs on in the app, whatever `.node-version` says: `.node-version` only picks the Node that builds the app and runs the tooling.
 
 ## Packaging
 
@@ -180,6 +189,19 @@ A release is a tag on a commit whose `package.json` has that version, with relea
    ```
 
 The Release workflow then checks that the tag matches `package.json`'s version (and stops before building if it doesn't), runs the tests and builds the installers on Windows, macOS and Linux, and creates the GitHub release with them attached: a pre-release when the version has a hyphen (`-alpha.2`, `-rc.1`), a normal release otherwise. A tag that already has a release can't make another; a broken one is fixed with a new version.
+
+Each release also carries the files the installed editors update from: `latest.yml` (Windows) and `latest-linux.yml` (the AppImage), which name the version and its installer's checksum, and a `.blockmap` per installer, so an update only downloads what changed. electron-builder writes them because of the `publish` entry in `package.json`'s `build` (the workflow still publishes with `gh`, not electron-builder), and the workflow attaches them with the installers. They have to be there: a release without them breaks the automatic updates until the next one. The update code is in `electron/updates/`: `updater.ts` uses [electron-updater](https://www.electron.build/auto-update) on Windows and for the AppImage, and on macOS and for the `.deb` reads GitHub's list of releases (`releases.ts`).
+
+To try updates without a release, build a newer installer into a folder of its own and serve it as a feed; `IVE_UPDATE_FEED` points the editor at it instead of GitHub, and also turns the checks on when running from source (from source it downloads the update but never installs it):
+
+```powershell
+npm run build; npm run build:electron
+npx electron-builder --win nsis --publish never -c.extraMetadata.version=0.1.0-alpha.99 -c.directories.output=$env:TEMP\ive-feed
+npx http-server $env:TEMP\ive-feed -p 8765        # or any static file server
+$env:IVE_UPDATE_FEED = 'http://localhost:8765'; npx electron .
+```
+
+The status bar should go from *Downloading version 0.1.0-alpha.99…* to *Version 0.1.0-alpha.99 is ready*. With a feed version that isn't newer, Help → Check for Updates… says you have the latest version.
 
 ## How it's built, and why
 

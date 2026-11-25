@@ -1,5 +1,18 @@
 <span>{{ store.status() }}</span>
 <span class="spacer"></span>
+@let update = updates.status();
+@switch (update?.state) {
+  @case ('available') { <span class="update">Downloading version {{ update?.version }}…</span> }
+  @case ('downloading') { <span class="update">Downloading version {{ update?.version }}… {{ update?.percent ?? 0 }}%</span> }
+  @case ('ready') {
+    <span class="update"><span class="badge source-badge">Version {{ update?.version }} is ready</span>
+      <button class="link" title="Asks about unsaved changes, then restarts into the new version" (click)="updates.install()">Restart to update</button></span>
+  }
+  @case ('notify') {
+    <span class="update"><span class="badge source-badge">Version {{ update?.version }} is available</span>
+      <button class="link" title="Opens its release page on GitHub" (click)="updates.openReleasePage()">Download</button></span>
+  }
+}
 <span>{{ store.documents().length }} metadata {{ store.documents().length === 1 ? 'map' : 'maps' }} · {{ store.metadataTypes().length }} model types ·
   {{ store.catalog().size }} known from sources ·
   @if (store.errorCount()) { <span class="error-text">{{ store.errorCount() }} {{ store.errorCount() === 1 ? 'error' : 'errors' }}</span> } @else { no errors }

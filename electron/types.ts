@@ -141,3 +141,28 @@ export interface PaneLayout {
   sidebar?: number;
   side?: number;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Updates (updates/updater.ts)
+
+/** The two update settings (Settings in the sidebar), kept in the settings file; both on by default. */
+export interface UpdateSettings {
+  /** Check a few seconds after startup and every 4 hours. Help → Check for Updates… works either way. */
+  checkAutomatically: boolean;
+  /** Offer pre-releases (alpha, beta, rc) too, not only full releases. */
+  includePrereleases: boolean;
+}
+
+/**
+ * Where an update stands, for the status bar. 'available': found, the download starting; 'downloading': `percent`
+ * done; 'ready': downloaded, installed on restart (or on quit); 'notify': a newer version exists, but this install
+ * can't update itself (macOS, the .deb), so `url` is its release page; 'none': nothing newer (`version` is this one);
+ * 'error': the check or the download failed (`message`).
+ */
+export interface UpdateStatus {
+  state: 'available' | 'downloading' | 'ready' | 'notify' | 'none' | 'error';
+  version?: string;
+  percent?: number;
+  url?: string;
+  message?: string;
+}

@@ -1,13 +1,17 @@
-// The application menu: File (commands the renderer carries out), Electron's Edit menu, and View. A menu item doesn't
-// do the work itself: it sends the command to the renderer as a `menu` message (preload.ts, onMenu).
+// The application menu: File (commands the renderer carries out), Electron's Edit menu, View, and Help. A menu item
+// doesn't do the work itself: it sends the command to the renderer as a `menu` message (preload.ts, onMenu). Help's
+// items are the exception, being the main process's own: checking for updates (updates/updater.ts), the releases
+// page, and About.
 //
 // Some items follow the renderer's state, which it reports here (registerMenuHandlers): File → Close Project while a
 // project is open, Discard All Unsaved Changes while something is unsaved. File → Open Recent Project lists the
 // recent projects (settings/recent-projects.ts). Whenever any of that changes, updateMenu builds the menu again;
 // ipc/project.ts calls it when a project is used.
-import { app, ipcMain, Menu, type MenuItemConstructorOptions } from 'electron';
+import { app, dialog, ipcMain, Menu, type MenuItemConstructorOptions } from 'electron';
 import { clearRecentProjects, getRecentProjects } from '../settings/recent-projects';
 import { settingsFilePath } from '../settings/settings-file';
+import { RELEASES_PAGE } from '../updates/releases';
+import { checkForUpdates, openReleasePage } from '../updates/updater';
 import { mainWindow } from './main-window';
 
 // File → Close Project is there while a project is open; a closed one isn't reopened at the next start.
@@ -70,7 +74,28 @@ function recentProjectsMenu(): MenuItemConstructorOptions[] {
   ];
 }
 
-/** The application menu: File (commands the renderer carries out), Electron's Edit menu, and View. */
+/**
+ * Help → About IdeaBlade Validation Editor: the version, and the versions of Electron, Chrome and Node it runs on.
+ */
+function showAbout(): void {
+  const options = {
+    type: 'info' as const,
+    title: 'About IdeaBlade Validation Editor',
+    message: `IdeaBlade Validation Editor ${app.getVersion()}`,
+    detail: [
+      "A desktop editor for IdeaBlade Validation's JSON validation metadata.",
+      '',
+      `Electron ${process.versions.electron}`,
+      `Chrome ${process.versions.chrome}`,
+      `Node ${process.versions.node}`,
+    ].join('\n'),
+    buttons: ['OK'],
+  };
+  const win = mainWindow();
+  void (win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options));
+}
+
+/** The application menu: File (commands the renderer carries out), Electron's Edit menu, View, and Help. */
 const buildMenu = (): Menu => Menu.buildFromTemplate([
   {
     label: '&File',
@@ -116,6 +141,15 @@ const buildMenu = (): Menu => Menu.buildFromTemplate([
       { role: 'zoomOut' },
       { type: 'separator' },
       { role: 'togglefullscreen' },
+    ],
+  },
+  {
+    label: '&Help',
+    submenu: [
+      { label: '&Check for Updates…', click: () => void checkForUpdates(true) },
+      { label: '&Releases on GitHub', click: () => openReleasePage(RELEASES_PAGE) },
+      { type: 'separator' },
+      { label: '&About IdeaBlade Validation Editor', click: showAbout },
     ],
   },
 ]);

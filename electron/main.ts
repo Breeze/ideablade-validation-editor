@@ -16,8 +16,10 @@
 //   ipc/project.ts          project:*: the *.ivproj file (project/project-file.ts), and the recent projects
 //   ipc/sources.ts          sources:*: source patterns (project/source-patterns.ts) and watching source files
 //   ipc/settings.ts         ui:*, app:recent-projects, app:startup-args: the user's settings (settings/)
+//   ipc/updates.ts          updates:*: the update settings and status, installing an update, release pages
 //   settings/               the settings file (window-state.json): window bounds, recent projects, user settings
 //   typescript/             reading TS files with the compiler: metadata maps, models, the app's validators
+//   updates/                updates from the GitHub releases: checking, downloading, installing (updater.ts)
 //
 // This file is compiled to dist-electron/main.js (package.json's "main"), next to preload.js; the Angular app is in
 // dist/ and the icons in build/, both one folder up from it, in the source tree and in the packaged app alike.
@@ -27,6 +29,8 @@ import { registerProjectHandlers } from './ipc/project';
 import { registerSettingsHandlers } from './ipc/settings';
 import { registerSourceHandlers } from './ipc/sources';
 import { registerTypeScriptHandlers } from './ipc/typescript';
+import { registerUpdateHandlers } from './ipc/updates';
+import { scheduleUpdateChecks } from './updates/updater';
 import { createWindow, registerWindowHandlers } from './window/main-window';
 import { registerMenuHandlers, updateMenu } from './window/menu';
 
@@ -38,10 +42,13 @@ registerSourceHandlers();
 registerSettingsHandlers();
 registerWindowHandlers();
 registerMenuHandlers();
+registerUpdateHandlers();
 
 void app.whenReady().then(() => {
   updateMenu();
   createWindow();
+  // Checks for updates a few seconds from now and every 4 hours, if this copy gets them and the setting is on.
+  scheduleUpdateChecks();
 });
 
 // One window: closing it ends the app, on macOS too.

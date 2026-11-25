@@ -5,6 +5,13 @@
 # - Windows: the NSIS installer (.exe), unsigned.
 # - macOS: a .dmg each for Intel (x64) and Apple silicon (arm64), signed ad hoc, not notarized (no Apple certificate).
 # - Linux: an AppImage and a .deb, x64.
+#
+# With them, the update files the installed apps read (electron-updater, see electron/updates/updater.ts): latest.yml
+# (Windows) and latest-linux.yml (the AppImage), which name the newest version and its installer's checksum, and a
+# .blockmap per installer, for downloading only what changed. electron-builder writes them because package.json's
+# "build" has a "publish" entry, even with --publish never; each runner writes its own (a latest-mac.yml, if any, is
+# unused: macOS doesn't update itself), so no names clash. Not builder-debug.yml (nor builder-effective-config.yaml,
+# which *.yml doesn't match anyway).
 name: Release
 
 on:
@@ -66,6 +73,9 @@ jobs:
             release/*.dmg
             release/*.AppImage
             release/*.deb
+            release/*.yml
+            release/*.blockmap
+            !release/builder-debug.yml
           if-no-files-found: error
 
   release:

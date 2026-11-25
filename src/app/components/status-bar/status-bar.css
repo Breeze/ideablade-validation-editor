@@ -1,1 +1,5 @@
 :host { display: flex; gap: 8px; padding: 3px 10px; font-size: 13px; color: var(--muted); background: var(--panel); border-top: 1px solid var(--border); }
+/* An update's notice, before the totals: quiet text while downloading, a badge and a link-button once there's
+   something to do. */
+.update { white-space: nowrap; padding-right: 8px; border-right: 1px solid var(--border); }
+.update button.link { font: inherit; }

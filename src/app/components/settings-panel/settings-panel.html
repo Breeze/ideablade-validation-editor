@@ -11,3 +11,11 @@
     @for (t of themes; track t) { <option [value]="t" [selected]="store.settings().theme === t">{{ themeLabels[t] }}</option> }
   </select>
 </label>
+<label class="setting check">
+  <input type="checkbox" [checked]="updates.settings().checkAutomatically" (change)="updates.changeSettings({ checkAutomatically: $any($event.target).checked })" />
+  Check for updates automatically
+</label>
+<label class="setting check">
+  <input type="checkbox" [checked]="updates.settings().includePrereleases" (change)="updates.changeSettings({ includePrereleases: $any($event.target).checked })" />
+  Include pre-releases (alpha, beta, rc)
+</label>
