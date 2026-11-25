@@ -1,5 +1,7 @@
-/* The Electron main process and preload script (electron/*.ts), compiled to CommonJS in dist-electron/ for
-   Electron 45's Node 24: `npm run build:electron`. The Angular renderer has its own configs (tsconfig.app.json). */
+/* The Electron main process and preload script (all the .ts files in electron/ and its subfolders), compiled to
+   CommonJS in dist-electron/ (the same folders) for Electron 45's Node 24: `npm run build:electron`, which empties
+   dist-electron/ first so files from sources since moved or deleted never linger. The Angular renderer has its own
+   configs (tsconfig.app.json). */
 {
   "compilerOptions": {
     "target": "ES2024",

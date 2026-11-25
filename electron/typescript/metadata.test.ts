@@ -1,8 +1,9 @@
-// Tests for typescript-metadata.ts (node --test, compiled to dist-electron/typescript-metadata.test.js; see
-// scripts/test-main.mjs): they need the real TypeScript compiler, which the Angular test build doesn't bundle.
+// Tests for metadata-read.ts and metadata-write.ts (node --test, compiled to dist-electron/typescript/metadata.test.js;
+// see scripts/test-main.mjs): they need the real TypeScript compiler, which the Angular test build doesn't bundle.
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { readTsMetadata, writeTsMetadata, insertTsMetadata, removeTsMetadata, newTsMetadataFile } from './typescript-metadata';
+import { readTsMetadata } from './metadata-read';
+import { insertTsMetadata, newTsMetadataFile, removeTsMetadata, writeTsMetadata } from './metadata-write';
 
 // As TempHire's client-validation-metadata.ts, with Windows line endings.
 const file = [

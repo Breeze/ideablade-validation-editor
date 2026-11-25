@@ -1,16 +1,15 @@
 // The preload script: the renderer's only access to the system. It runs in the renderer before the page, sandboxed,
 // and exposes `window.editorHost` (src/app/services/host.ts, interface EditorHost) through the context bridge:
 // opening and saving files, reading TypeScript, the project file, the user's settings and a few window functions. Each
-// function is a message to the main process (main.ts), `invoke` for those that answer and `send` for those that don't; the
-// `on…` functions subscribe to the main process's messages and return a function that unsubscribes.
+// function is a message to the main process (its handlers are in ipc/ and window/; main.ts maps them), `invoke` for
+// those that answer and `send` for those that don't; the `on…` functions subscribe to the main process's messages and
+// return a function that unsubscribes.
 //
-// Sandboxed preloads can require only 'electron' and a few Node built-ins, not other files: the imports of the
-// payloads' types below are type-only, so they compile to nothing.
+// Sandboxed preloads can require only 'electron' and a few Node built-ins, not other files: the import of the
+// payloads' types below (types.ts) is type-only, so it compiles to nothing. This file must stay next to main.ts, so it
+// is compiled to dist-electron/preload.js, where paths.ts looks for it.
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import type { PatternMatch, ProjectToWrite } from './project';
-import type { JsonObject } from './typescript-metadata';
-import type { ReadFile } from './typescript-models';
-import type { PaneLayout, SavedFolds, SavedSelection } from './window-state';
+import type { JsonObject, PaneLayout, PatternMatch, ProjectToWrite, ReadFile, SavedFolds, SavedSelection } from './types';
 
 /** Subscribes `handler` to a message from the main process; returns a function that unsubscribes it. */
 function subscribe<A extends unknown[]>(channel: string, handler: (...args: A) => void): () => void {
@@ -26,7 +25,7 @@ contextBridge.exposeInMainWorld('editorHost', {
   saveFile: (path: string, text: string) => ipcRenderer.invoke('file:save', path, text),
   chooseSavePath: (suggestion: string, projectDir?: string) => ipcRenderer.invoke('file:choose-save-path', suggestion, projectDir),
 
-  // Metadata in TypeScript files, which needs the TypeScript compiler (typescript-metadata.ts).
+  // Metadata in TypeScript files, which needs the TypeScript compiler (typescript/metadata-read.ts, metadata-write.ts).
   readTsMetadata: (text: string, fileName: string) => ipcRenderer.invoke('ts:read-metadata', text, fileName),
   writeTsMetadata: (text: string, fileName: string, name: string, json: JsonObject) =>
     ipcRenderer.invoke('ts:write-metadata', text, fileName, name, json),
@@ -35,7 +34,7 @@ contextBridge.exposeInMainWorld('editorHost', {
   removeTsMetadata: (text: string, fileName: string, name: string) => ipcRenderer.invoke('ts:remove-metadata', text, fileName, name),
   newTsMetadata: (name: string, json: JsonObject) => ipcRenderer.invoke('ts:new-metadata', name, json),
 
-  // The project file (*.ivproj, project.ts) and source patterns.
+  // The project file (*.ivproj, project/project-file.ts) and source patterns (project/source-patterns.ts).
   findProject: (filePath: string) => ipcRenderer.invoke('project:find', filePath),
   readProject: (projectPath: string) => ipcRenderer.invoke('project:read', projectPath),
   writeProject: (projectPath: string, project: ProjectToWrite) => ipcRenderer.invoke('project:write', projectPath, project),
@@ -56,7 +55,7 @@ contextBridge.exposeInMainWorld('editorHost', {
   setTitle: (title: string) => ipcRenderer.send('app:set-title', title),
   setTheme: (theme: string) => ipcRenderer.send('app:set-theme', theme),
 
-  // The user's settings, kept with the window's place (window-state.ts).
+  // The user's settings, kept with the window's place (settings/).
   getSelection: (key: string) => ipcRenderer.invoke('ui:get-selection', key),
   saveSelection: (key: string, selection: SavedSelection) => ipcRenderer.send('ui:set-selection', key, selection),
   getFolds: (key: string) => ipcRenderer.invoke('ui:get-folds', key),

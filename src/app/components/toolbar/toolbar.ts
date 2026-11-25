@@ -7,7 +7,7 @@ import { NEW_FORMATS } from '../../shared/new-formats';
 /**
  * The toolbar across the top of the window: New (a menu of JSON, TypeScript, C#), Open, the Save commands, Discard
  * all, the source commands, and the selected file's path on the right. Each button calls the store; the same commands
- * are in the application menu (electron/main.ts), which reaches the store through the shell (App).
+ * are in the application menu (electron/window/menu.ts), which reaches the store through the shell (App).
  *
  * It's an attribute component on the `<header>` element, so the page keeps its `header.toolbar` element as before.
  */

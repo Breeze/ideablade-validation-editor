@@ -19,7 +19,7 @@
     "ng": "ng",
     "prebuild": "node scripts/build-schema-validator.mjs",
     "build": "ng build",
-    "build:electron": "tsc -p tsconfig.electron.json",
+    "build:electron": "node -e \"require('fs').rmSync('dist-electron', { recursive: true, force: true })\" && tsc -p tsconfig.electron.json",
     "start": "npm run build && npm run build:electron && electron .",
     "dev": "node scripts/build-schema-validator.mjs && npm run build:electron && node scripts/dev.mjs",
     "test": "node scripts/build-schema-validator.mjs && ng test --watch=false && npm run build:electron && node scripts/test-main.mjs",

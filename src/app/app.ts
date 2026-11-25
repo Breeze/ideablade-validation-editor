@@ -40,7 +40,7 @@ function fitWidths(windowWidth: number, sidebar: number, side: number): { sideba
  * settings (DocumentEditor), or the start page when nothing is open.
  *
  * The shell also does what belongs to the window as a whole: the application menu's commands (sent by the main
- * process, electron/main.ts), the files given on the command line at startup, the window title, the colour theme,
+ * process, electron/window/menu.ts), the files given on the command line at startup, the window title, the colour theme,
  * asking about unsaved changes when the window closes, and the splitters (their widths are saved with the window's
  * place).
  */

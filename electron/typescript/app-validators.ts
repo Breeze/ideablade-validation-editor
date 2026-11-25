@@ -1,143 +1,11 @@
-// Reads the models (interfaces, object type aliases, classes) of a TypeScript file with the TypeScript compiler API,
-// and the application's own validators and expression functions. It runs in the main process: the compiler needs
-// Node, which the sandboxed renderer doesn't have. The results have the shapes of SourceModel, SourceValidator and
-// SourceFunction in src/lib/sources.ts; main.ts adds them to every TS file it reads for the renderer
-// (withTypeScriptModels).
+// Reads the application's own validators and expression functions from a TypeScript file with the TypeScript compiler
+// API, so the editor can offer them next to the library's: `syncValidator(...)`/`asyncValidator(...)` calls, validator
+// classes and the `{ name, fn }` factories that create them, and the functions given to `provideExpressionScope(...)`
+// or an `expressionScope` setting. The results have the shapes of SourceValidator and SourceFunction in
+// src/lib/sources.ts; read-file.ts adds them to every TS file read for the renderer, with its models (models.ts).
 import ts from 'typescript';
-
-/** A model's property, as the source writes it. */
-export interface SourceProperty {
-  name: string;
-  /** The type text, or `= <initializer>` for an untyped class field. */
-  type: string;
-  nullable?: boolean;
-}
-
-/** A model: an interface, an object type alias or a class. */
-export interface SourceModel {
-  name: string;
-  kind: 'interface' | 'type' | 'class';
-  /** The type it extends, by name as written. */
-  base?: string;
-  properties: SourceProperty[];
-}
-
-/** A validator the application registers itself. */
-export interface SourceValidator {
-  name: string;
-  /** Registered as an asynchronous / synchronous validator (both when the file has both). */
-  async: boolean;
-  sync: boolean;
-  defaultMessage?: string;
-  /** Context settings its code reads: ctx.factor, ... */
-  settings: string[];
-  description?: string;
-}
-
-/** A function or value the application adds to the expression scope. */
-export interface SourceFunction {
-  name: string;
-  /** Parameters, for a function; undefined for a value. */
-  params?: string[];
-  returns?: string;
-  description?: string;
-}
-
-/** A file read for the renderer: its path and text, and (for a TS file) what was found in it, or why not. */
-export interface ReadFile {
-  path: string;
-  text?: string;
-  error?: string;
-  models?: SourceModel[];
-  validators?: SourceValidator[];
-  functions?: SourceFunction[];
-  parseError?: string;
-}
-
-/** Decorators that mark Angular building blocks rather than models. */
-const NON_MODEL_DECORATORS = ['Component', 'Injectable', 'Directive', 'Pipe', 'NgModule'];
-
-/** The file parsed (syntax only), as TSX when its name ends in x. */
-function createSourceFile(text: string, fileName: string): ts.SourceFile {
-  return ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, fileName.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
-}
-
-/**
- * The models in a TypeScript file: interfaces, object type aliases and classes (but not Angular components, services
- * and the like, nor validator classes), each with its public, non-function properties. Top level and in namespaces.
- */
-export function parseTypeScript(text: string, fileName = 'model.ts'): SourceModel[] {
-  const sf = createSourceFile(text, fileName);
-  const models: SourceModel[] = [];
-  const typeText = (node: ts.Node | undefined): string => (node ? node.getText(sf).replace(/\s+/g, ' ') : 'unknown');
-  const nameText = (name: ts.Node): string | undefined =>
-    ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name) || ts.isPrivateIdentifier(name) ? name.text : undefined;
-  const hasModifier = (node: ts.Node, kind: ts.SyntaxKind): boolean =>
-    ts.canHaveModifiers(node) && (ts.getModifiers(node) ?? []).some((m) => m.kind === kind);
-  const isHidden = (node: ts.Node): boolean =>
-    hasModifier(node, ts.SyntaxKind.PrivateKeyword) || hasModifier(node, ts.SyntaxKind.ProtectedKeyword) || hasModifier(node, ts.SyntaxKind.StaticKeyword);
-  const baseOf = (clauses: ts.NodeArray<ts.HeritageClause> | undefined): string | undefined => {
-    const ext = clauses?.find((c) => c.token === ts.SyntaxKind.ExtendsKeyword)?.types[0];
-    return ext ? ext.expression.getText(sf) : undefined;
-  };
-  const isFunctionLike = (node: ts.Node | undefined): boolean =>
-    !!node && (ts.isArrowFunction(node) || ts.isFunctionExpression(node) || ts.isFunctionTypeNode(node));
-
-  // An interface's or type literal's properties; methods and function-typed properties aren't data.
-  const fromMembers = (members: ts.NodeArray<ts.TypeElement>): SourceProperty[] =>
-    members.flatMap((m) => {
-      if (!ts.isPropertySignature(m)) return [];
-      const name = nameText(m.name);
-      if (!name || isFunctionLike(m.type)) return [];
-      return [{ name, type: typeText(m.type), nullable: !!m.questionToken }];
-    });
-
-  const visit = (node: ts.Node): void => {
-    if (ts.isInterfaceDeclaration(node)) {
-      models.push({ name: node.name.text, kind: 'interface', base: baseOf(node.heritageClauses), properties: fromMembers(node.members) });
-    } else if (ts.isTypeAliasDeclaration(node) && ts.isTypeLiteralNode(node.type)) {
-      models.push({ name: node.name.text, kind: 'type', properties: fromMembers(node.type.members) });
-    } else if (ts.isClassDeclaration(node) && node.name) {
-      const decorators = (ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : []).map((d) =>
-        ts.isCallExpression(d.expression) ? d.expression.expression.getText(sf) : d.expression.getText(sf),
-      );
-      const base = node.heritageClauses?.find((c) => c.token === ts.SyntaxKind.ExtendsKeyword)?.types[0]?.expression.getText(sf);
-      // Validator classes are read as validators (parseTypeScriptApp), not as models.
-      if (!decorators.some((d) => NON_MODEL_DECORATORS.includes(d)) && !/Validator$/.test(base ?? '')) {
-        const properties: SourceProperty[] = [];
-        for (const m of node.members) {
-          if (isHidden(m)) continue;
-          if (ts.isPropertyDeclaration(m)) {
-            const name = nameText(m.name);
-            if (!name || ts.isPrivateIdentifier(m.name) || isFunctionLike(m.initializer) || isFunctionLike(m.type)) continue;
-            const type = m.type ? typeText(m.type) : m.initializer ? `= ${typeText(m.initializer).slice(0, 40)}` : 'unknown';
-            properties.push({ name, type, nullable: !!m.questionToken });
-          } else if (ts.isGetAccessorDeclaration(m)) {
-            const name = nameText(m.name);
-            if (name && !properties.some((p) => p.name === name)) properties.push({ name, type: typeText(m.type) });
-          } else if (ts.isConstructorDeclaration(m)) {
-            // Parameter properties: constructor(public name: string, readonly id: number)
-            for (const p of m.parameters) {
-              const isParameterProperty =
-                hasModifier(p, ts.SyntaxKind.PublicKeyword) || (hasModifier(p, ts.SyntaxKind.ReadonlyKeyword) && !isHidden(p));
-              const name = nameText(p.name);
-              if (isParameterProperty && name) properties.push({ name, type: typeText(p.type), nullable: !!p.questionToken });
-            }
-          }
-        }
-        models.push({ name: node.name.text, kind: 'class', base: baseOf(node.heritageClauses), properties });
-      }
-    }
-    if (ts.isModuleDeclaration(node) || ts.isModuleBlock(node) || ts.isSourceFile(node)) {
-      ts.forEachChild(node, visit);
-    }
-  };
-  visit(sf);
-  return models;
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// The application's own validators and expression functions
+import type { SourceFunction, SourceValidator } from '../types';
+import { createSourceFile } from './models';
 
 /** Context keys every validator gets; a validator reading only these has no settings of its own. */
 const STANDARD_CONTEXT_KEYS = new Set([
@@ -356,17 +224,4 @@ export function parseTypeScriptApp(text: string, fileName = 'app.ts'): { validat
   // Classes that name themselves in super(...) count even without a factory in this file.
   for (const cls of classes.values()) if (cls.name) addValidator({ ...cls, name: cls.name });
   return { validators, functions };
-}
-
-/**
- * Adds the models, validators and functions (or `parseError`) to a file read for the renderer, for a TS file; other
- * files are returned as they are. Called for every file the renderer opens or a watcher reloads (main.ts).
- */
-export function withTypeScriptModels<T extends ReadFile>(file: T): T {
-  if (!/\.tsx?$/i.test(file.path) || file.text === undefined) return file;
-  try {
-    return { ...file, models: parseTypeScript(file.text, file.path), ...parseTypeScriptApp(file.text, file.path) };
-  } catch (e) {
-    return { ...file, parseError: String((e as Error | undefined)?.message ?? e) };
-  }
 }
