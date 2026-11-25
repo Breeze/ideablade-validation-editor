@@ -40,6 +40,13 @@ export class MetadataTree {
   private readonly store = inject(EditorStore);
 
   constructor() {
+    // A project (or set of files) opened, with its selection and folds back as they were: scroll the list to the
+    // selection, which in a long list may be far down. Both are restored asynchronously, in either order.
+    effect(() => {
+      if (this.store.selectionRestored() && this.foldsLoaded() === this.store.workspaceKey()) {
+        untracked(() => this.revealSelectionRequest.update((n) => n + 1));
+      }
+    });
     // Each project (or set of files) has its own folds, loaded when it opens; a search from the one before doesn't
     // carry over.
     effect(() => {
@@ -149,12 +156,17 @@ export class MetadataTree {
   /** The folds this workspace had last time; none for a workspace that had none. */
   private async loadFolds(key: string): Promise<void> {
     this.foldsFor = undefined;
+    this.foldsLoaded.set(undefined);
     const folds = key ? await host.getFolds(key) : undefined;
     if (this.store.workspaceKey() !== key) return; // another one opened meanwhile
     this.foldedFiles.set(new Set(folds?.files ?? []));
     this.foldedMaps.set(new Set(folds?.maps ?? []));
     this.foldsFor = key || undefined;
+    this.foldsLoaded.set(key);
   }
+
+  /** The workspace whose folds are in place (also '' for none): the list is drawn as it will stay. */
+  private readonly foldsLoaded = signal<string | undefined>(undefined);
 
   /** Saved files and maps only: an unsaved document's id means nothing next time. */
   private saveFolds(): void {

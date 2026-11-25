@@ -694,8 +694,11 @@ export class EditorStore {
 
   /** What selections are remembered by: the project file, or the first metadata file without one. */
   readonly workspaceKey = computed(() => this.project()?.path ?? this.documents()[0]?.path() ?? '');
-  /** Set once the files are open and the remembered selection is back, so opening them doesn't overwrite it. */
-  private readonly selectionRestored = signal(false);
+  /**
+   * Set once the files are open and the remembered selection is back, so opening them doesn't overwrite it; the
+   * sidebar then scrolls to the selection (MetadataTree).
+   */
+  readonly selectionRestored = signal(false);
 
   /**
    * Selects what was selected when this project (or file) was last open, if it's still there. Otherwise the first
