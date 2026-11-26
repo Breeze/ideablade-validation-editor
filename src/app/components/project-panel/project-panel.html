@@ -7,7 +7,9 @@
     <span class="spacer"></span>
     <button (click)="store.saveProject()" [disabled]="!store.projectDirty()">Save</button>
   </div>
-  <div class="hint">{{ p.metadata.length }} metadata {{ p.metadata.length === 1 ? 'file' : 'files' }} · {{ p.sources.length }} source {{ p.sources.length === 1 ? 'entry' : 'entries' }} · shared settings</div>
+  <!-- What the project file holds, unsaved changes included (they show as ● until it's saved) -->
+  @let state = store.projectState();
+  <div class="hint">{{ state.metadata.length }} metadata {{ state.metadata.length === 1 ? 'file' : 'files' }} · {{ state.sources.length }} source {{ state.sources.length === 1 ? 'entry' : 'entries' }} · shared settings</div>
 } @else {
   <!-- No project: offer to create one from what's open -->
   <div class="add-row">

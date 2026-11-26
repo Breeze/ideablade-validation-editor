@@ -31,7 +31,9 @@ let nextId = 0;
  * - ▾, Alt+↓ or ↓ shows the list (all of it while the field still holds what was there, or nothing).
  * - ↑/↓ move through it, Enter or a click puts the choice in the field, Esc closes it (a second Esc goes on to the
  *   page, e.g. to clear a search).
- * - The field stays free text: anything can be typed, as with a datalist; `valueChange` reports every change.
+ * - The field stays free text: anything can be typed, as with a datalist. `valueChange` reports it once it's meant:
+ *   a choice picked, Enter, or leaving the field (a second Esc puts the old value back); a `live` field reports every
+ *   keystroke.
  *   Enter with the list closed (or nothing in it highlighted) is reported as `enter`, for fields that add something.
  * - As a `menu`, the field is only for finding a choice: picking one reports it as `picked` and empties the field
  *   (adding a property to a list, starting from a common pattern).
@@ -58,6 +60,11 @@ export class Combobox {
   readonly emptyText = input('');
   /** A menu: picking reports `picked` and empties the field, instead of putting the choice in it. */
   readonly menu = input(false);
+  /**
+   * Every keystroke goes out (`valueChange`), not only the finished value: for the Add rows, whose Add button is
+   * enabled by what's typed. Off for fields that hold a value in the metadata (`extends`, `from`, a validator's name).
+   */
+  readonly live = input(false);
   /** Every change to the field's text: typed, or a choice picked. */
   readonly valueChange = output<string>();
   /** Enter, when it doesn't pick a choice from the list: with the field's text. */
@@ -123,9 +130,13 @@ export class Combobox {
     this.list().nativeElement.style.setProperty('position-anchor', this.anchorName);
   }
 
-  /** Typing: the text goes out, and the list opens narrowed by it. */
+  /**
+   * Typing narrows the list. The text goes out only once it's meant: a choice picked, Enter, or leaving the field; so
+   * searching with a few words (`staff name`) doesn't write them into the metadata as you type. A `live` field (the
+   * Add rows, whose button needs the text as it's typed) sends every change.
+   */
   onInput(text: string): void {
-    if (!this.menu()) this.valueChange.emit(text);
+    if (!this.menu() && this.live()) this.valueChange.emit(text);
     this.filter.set(text);
     this.active.set(text.trim() ? 0 : -1);
     this.open.set(this.canOpen());
@@ -152,12 +163,25 @@ export class Combobox {
     this.active.set(-1);
   }
 
+  /** Leaving the field: the list closes, and what was typed is taken as the value. */
+  onBlur(): void {
+    this.close();
+    this.commitTyped();
+  }
+
+  /** What's typed, out as the new value if it differs (not for a menu, whose text is only a search). */
+  private commitTyped(): void {
+    const text = this.field().nativeElement.value;
+    if (!this.menu() && text !== this.value()) this.valueChange.emit(text);
+  }
+
   /** A choice clicked or picked with Enter: into the field. */
   pick(value: string): void {
     if (this.menu()) {
       this.field().nativeElement.value = '';
       this.picked.emit(value);
     } else {
+      this.field().nativeElement.value = value; // also when it's the value already, over what was typed
       this.valueChange.emit(value);
     }
     this.close();
@@ -182,6 +206,7 @@ export class Combobox {
           this.pick(chosen.value);
         } else {
           this.close();
+          this.commitTyped();
           this.enter.emit(this.field().nativeElement.value);
         }
         return;
@@ -192,6 +217,11 @@ export class Combobox {
           event.preventDefault();
           event.stopPropagation();
           this.close();
+        } else if (!this.live() && !this.menu() && this.field().nativeElement.value !== this.value()) {
+          // A second Esc puts back the value the field had, dropping what was typed.
+          event.preventDefault();
+          event.stopPropagation();
+          this.field().nativeElement.value = this.value();
         }
         return;
       case 'Tab':

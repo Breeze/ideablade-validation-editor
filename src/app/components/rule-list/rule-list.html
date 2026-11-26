@@ -25,7 +25,7 @@
   }
   <!-- Add a rule (any validator name; the known ones are suggested) or, outside groups, a group -->
   <div class="add-row">
-    <app-combobox placeholder="validator…" [value]="newName()" [options]="validatorChoices()" (valueChange)="newName.set($event)" (enter)="add()" />
+    <app-combobox placeholder="validator…" [live]="true" [value]="newName()" [options]="validatorChoices()" (valueChange)="newName.set($event)" (enter)="add()" />
     <button (click)="add()" [disabled]="!newName().trim()">Add rule</button>
     @if (!inGroup()) {
       <button (click)="addGroup()">Add group</button>

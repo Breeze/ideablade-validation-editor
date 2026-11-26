@@ -2,7 +2,7 @@
 <div class="combo">
   <input #field role="combobox" autocomplete="off" spellcheck="false" [attr.aria-expanded]="open()" [attr.aria-controls]="listId"
     [value]="value()" [placeholder]="placeholder()" [title]="title()"
-    (input)="onInput($any($event.target).value)" (keydown)="onKeydown($event)" (blur)="close()" />
+    (input)="onInput($any($event.target).value)" (keydown)="onKeydown($event)" (blur)="onBlur()" />
   <!-- mousedown's default would take the focus from the field (and close the list) -->
   <button class="combo-toggle" type="button" tabindex="-1" title="Show the list (↓)" [disabled]="!canOpen()"
     (mousedown)="$event.preventDefault()" (click)="toggle()">▾</button>

@@ -59,7 +59,7 @@
     @if (!d.readOnly()) {
       <div class="add-row add-model">
         <!-- The types the sources know that this map doesn't have yet, searchable -->
-        <app-combobox placeholder="model type…" [title]="'Add a model type to ' + d.label()" [options]="missingTypesOf(d)"
+        <app-combobox placeholder="model type…" [live]="true" [title]="'Add a model type to ' + d.label()" [options]="missingTypesOf(d)"
           [value]="newModels()[d.id] ?? ''" (valueChange)="setNewModel(d.id, $event)" (enter)="addModel(d.id)" />
         <button (click)="addModel(d.id)" [disabled]="!(newModels()[d.id] ?? '').trim()">Add</button>
       </div>
