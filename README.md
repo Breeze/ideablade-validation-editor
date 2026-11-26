@@ -111,6 +111,10 @@ Two settings in the sidebar's Settings decide what happens: *Check for updates a
 |---|---|---|
 | ![](docs/screenshots/ts-maps.png) | ![](docs/screenshots/start-page.png) | ![](docs/screenshots/new-menu.png) |
 
+| Searchable lists: `from` narrowed to `staff name` | A validator that doesn't fit its property | Sources from a folder, as a pattern |
+|---|---|---|
+| ![](docs/screenshots/searchable-list.png) | ![](docs/screenshots/validator-kinds.png) | ![](docs/screenshots/folder-sources.png) |
+
 ## Running it
 
 Node 26.13.1 (the current LTS; `.node-version`) to build and run the tooling. With nvs: `nvs use 26.13.1`. The app itself runs on the Node inside Electron (24.22 in Electron 45).
