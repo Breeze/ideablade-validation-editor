@@ -1,27 +1,45 @@
 <div class="rule-list">
-  @for (rule of rules(); track $index; let i = $index) {
-    @if (isGroup(rule)) {
+  @if (searchable() && rules().length) {
+    <!-- The search: rules (and groups) with every word typed in their validator, id, condition, messages, settings... -->
+    <div class="list-search">
+      <input type="search" placeholder="Find rules…" aria-label="Find rules"
+        title="Rules whose validator, id, condition, property names, message, settings or $comment have every word typed (or that are in a group whose name has them). Moving rules is off while searching. Enter opens the first match, Esc clears it."
+        [value]="query()" (input)="query.set($any($event.target).value)"
+        (keydown.escape)="clearSearch($event)" (keydown.enter)="openFirst()" />
+      @if (filtering()) {
+        <span class="search-count" title="Rules that match, of all (those in groups included)">{{ matchCount() }} of {{ ruleCount() }}</span>
+      }
+    </div>
+  }
+  @for (item of items(); track item.index) {
+    @let i = item.index;
+    @if (isGroup(item.rule)) {
       <!-- A group: its head (name, move, remove), $comment and its own rule list -->
       <div class="group">
         <div class="group-head">
           <span class="badge group-badge">group</span>
-          <input class="group-name" [value]="rule.group" placeholder="group name" (input)="setGroupName(i, $any($event.target).value)" />
+          <input class="group-name" [value]="item.rule.group" placeholder="group name" (input)="setGroupName(i, $any($event.target).value)" />
           <span class="spacer"></span>
-          <button class="icon" title="Move up" (click)="move(i, -1)" [disabled]="i === 0">↑</button>
-          <button class="icon" title="Move down" (click)="move(i, 1)" [disabled]="i === rules().length - 1">↓</button>
+          <button class="icon" title="Move up" (click)="move(i, -1)" [disabled]="i === 0 || filtering()">↑</button>
+          <button class="icon" title="Move down" (click)="move(i, 1)" [disabled]="i === rules().length - 1 || filtering()">↓</button>
           <button class="icon danger" title="Remove group" (click)="remove(i)">✕</button>
         </div>
-        <textarea class="comment" rows="1" placeholder="$comment" [value]="comment(rule)" (change)="setGroupComment(i, $any($event.target).value)"></textarea>
+        <textarea class="comment" rows="1" placeholder="$comment" [value]="comment(item.rule)" (change)="setGroupComment(i, $any($event.target).value)"></textarea>
         <app-inline-issues [path]="at(i, 'group')" />
-        <app-rule-list [path]="at(i, 'validators')" [modelType]="modelType()" [propertyName]="propertyName()" [inGroup]="true" />
+        <app-rule-list [path]="at(i, 'validators')" [modelType]="modelType()" [propertyName]="propertyName()" [inGroup]="true"
+          [filter]="item.filter" (added)="afterAdd()" />
       </div>
     } @else {
-      <!-- A rule -->
+      <!-- A rule (it can't be moved while searching: its neighbours in the list may be hidden) -->
       <app-rule-editor [path]="at(i)" [modelType]="modelType()" [propertyName]="propertyName()"
-        [first]="i === 0" [last]="i === rules().length - 1" (moved)="move(i, $event)" (removed)="remove(i)" />
+        [first]="i === 0 || filtering()" [last]="i === rules().length - 1 || filtering()" (moved)="move(i, $event)" (removed)="remove(i)" />
     }
   } @empty {
-    <div class="empty">No rules.</div>
+    @if (filtering()) {
+      <div class="empty">No rule matches “{{ query().trim() }}”.</div>
+    } @else {
+      <div class="empty">No rules.</div>
+    }
   }
   <!-- Add a rule (any validator name; the known ones are suggested) or, outside groups, a group -->
   <div class="add-row">
