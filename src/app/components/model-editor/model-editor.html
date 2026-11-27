@@ -33,16 +33,32 @@
 <!-- Model-level rules -->
 <section>
   <div class="section-title">Model-level rules <small>(they get the whole model; propertyNames say which fields an error is about)</small></div>
-  <app-rule-list [path]="at('validators')" [modelType]="name()" />
+  <app-rule-list [path]="at('validators')" [modelType]="name()" [searchable]="true" />
 </section>
 
-<!-- The properties, and a field to add one (suggesting the model sources' properties that have no entry yet) -->
+<!-- The properties, a search that narrows them, and a field to add one (suggesting the model sources' properties
+     that have no entry yet) -->
 <section>
   <div class="section-title">Properties</div>
-  @for (p of propertyNames(); track p) {
+  @if (propertyNames().length) {
+    <div class="list-search">
+      <input type="search" placeholder="Find properties and rules…" aria-label="Find properties and rules"
+        title="Properties whose name, display name, required/minLength/maxLength or rules (validator, id, condition, message, settings) have every word typed. Enter opens the first match, Esc clears it."
+        [value]="propertyFilter()" (input)="propertyFilter.set($any($event.target).value)"
+        (keydown.escape)="clearSearch($event)" (keydown.enter)="openFirstProperty()" />
+      @if (propertyWords().length) {
+        <span class="search-count" title="Properties that match, of all">{{ shownProperties().length }} of {{ propertyNames().length }}</span>
+      }
+    </div>
+  }
+  @for (p of shownProperties(); track p) {
     <app-property-editor [modelType]="name()" [name]="p" />
   } @empty {
-    <div class="empty">No properties with rules yet.</div>
+    @if (propertyWords().length) {
+      <div class="empty">No property or rule matches “{{ propertyFilter().trim() }}”.</div>
+    } @else {
+      <div class="empty">No properties with rules yet.</div>
+    }
   }
   <div class="add-row">
     <app-combobox placeholder="property…" [live]="true" [value]="newProperty()" [options]="propertyOptions()" [emptyText]="noPropertiesText()" (valueChange)="newProperty.set($event)" (enter)="addProperty()" />

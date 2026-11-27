@@ -8,6 +8,7 @@ import { insertCsMetadata, newCsMetadataFile, pascalCaseFromFile, readCsMetadata
 import { type Json, type MetadataDoc, lineOfPath, mergeDocs, setIn, stringify } from './doc';
 import { mergeMaps, mergeModel } from './merge';
 import { COMMON_PATTERNS, analyzeRegex, regexTestKey, splitPattern, testSamples } from './regex';
+import { matchesWords, propertyText, ruleText, searchWords } from './rule-search';
 import { buildCatalog, camelCase, parseBreeze, parseCSharp, parseCSharpApp, parseSource, valueKind } from './sources';
 import { runTest } from './tester';
 
@@ -535,5 +536,48 @@ describe('the regular expression panel', () => {
     for (const p of COMMON_PATTERNS) expect(analyzeRegex(p.pattern).error, p.label).toBeUndefined();
     const zip = COMMON_PATTERNS.find((p) => p.builtIn === 'zipCode')!;
     expect(testSamples(zip.pattern, '', ['98101', '98101-1234', '9810'])!.map((r) => r.passes)).toEqual([true, true, false]);
+  });
+});
+
+describe('searching properties and rules', () => {
+  const rule = {
+    name: 'expression',
+    id: 'GT_REQUIRES_PRENEED',
+    propertyNames: ['gt'],
+    condition: '!model.pntrust',
+    context: { expression: '!model.gt', messageTemplate: 'Guaranteed Trust applies only to a preneed contract.' },
+  };
+  const finds = (text: string, query: string) => matchesWords(text, searchWords(query));
+
+  it('matches every word typed, in any order, ignoring case', () => {
+    expect(searchWords('  GT  prene ')).toEqual(['gt', 'prene']);
+    expect(finds(ruleText(rule), 'prene gt')).toBe(true);
+    expect(finds(ruleText(rule), 'guaranteed contract')).toBe(true);
+    expect(finds(ruleText(rule), 'pntrust')).toBe(true);
+    expect(finds(ruleText(rule), 'gt range')).toBe(false);
+    expect(finds(ruleText(rule), '')).toBe(true);
+  });
+
+  it("searches a rule's values, not its keys", () => {
+    expect(finds(ruleText(rule), 'context')).toBe(false);
+    expect(finds(ruleText('required'), 'required')).toBe(true);
+    expect(finds(ruleText({ name: 'range', context: { minValue: -999999.99, maxValue: 999999.99 } }), 'range 999999.99')).toBe(true);
+  });
+
+  it("searches a group by its name and $comment, not its rules", () => {
+    const group = { group: 'submit', $comment: 'Checked on save', validators: [rule] };
+    expect(finds(ruleText(group), 'submit save')).toBe(true);
+    expect(finds(ruleText(group), 'preneed')).toBe(false);
+  });
+
+  it('searches a property by its name, shorthands, display name and rules', () => {
+    const entry = { displayName: 'Balance Due', required: true, maxLength: 12, validators: [{ group: 'submit', validators: [rule] }] };
+    const text = propertyText('upkbal', entry);
+    expect(finds(text, 'upk')).toBe(true);
+    expect(finds(text, 'balance due')).toBe(true);
+    expect(finds(text, 'required maxlength 12')).toBe(true);
+    expect(finds(text, 'submit preneed')).toBe(true);
+    expect(finds(propertyText('upkbal', { required: false }), 'required')).toBe(false);
+    expect(finds(propertyText('upkbal', undefined), 'upkbal')).toBe(true);
   });
 });

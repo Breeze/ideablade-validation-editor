@@ -173,6 +173,11 @@ code { font-family: var(--mono); font-size: 13px; background: var(--code-bg); pa
 .add-row { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
 .add-row input, .add-row app-combobox { flex: 1; min-width: 0; }
 .add-row button { white-space: nowrap; }
+/* The searches above a model's properties and above the model-level and global rules, with the count of what
+   matches. Here rather than in a component's CSS because scoping would raise them above `input:focus` (see .model-name). */
+.list-search { display: flex; gap: 6px; align-items: center; margin: 0 0 6px; }
+.list-search input { flex: 1; min-width: 0; max-width: 420px; }
+.list-search .search-count { font-size: 12px; color: var(--muted); white-space: nowrap; }
 
 /* Section headings: the document, model and property editors */
 .section-title { font-weight: 600; margin: 4px 0 6px; }

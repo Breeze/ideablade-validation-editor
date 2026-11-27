@@ -22,7 +22,7 @@
   <!-- The global rules -->
   <section>
     <div class="section-title">Global rules <small>(model-level rules for every model type, such as breeze)</small></div>
-    <app-rule-list [path]="['global', 'validators']" />
+    <app-rule-list [path]="['global', 'validators']" [searchable]="true" />
     <app-inline-issues [path]="['global']" [exact]="true" />
   </section>
   <!-- Issues about the document as a whole -->
