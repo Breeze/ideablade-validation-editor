@@ -36,7 +36,15 @@ const rangeSettings: SettingInfo[] = [
 ];
 
 export const BUILT_IN_VALIDATORS: ValidatorInfo[] = [
-  { name: 'required', description: 'A value is required.', defaultMessage: '%displayName% is required', settings: [{ key: 'trim', kind: 'boolean', help: 'whitespace-only fails' }] },
+  {
+    name: 'required',
+    description: 'A value is required.',
+    defaultMessage: '%displayName% is required',
+    settings: [
+      { key: 'trim', kind: 'boolean', help: 'whitespace-only fails' },
+      { key: 'allowEmptyString', kind: 'boolean', help: "any string passes, '' included; null still fails" },
+    ],
+  },
   { name: 'minLength', description: 'At least n characters.', defaultMessage: '%displayName% must be at least %minLength% characters', settings: [{ key: 'minLength', kind: 'integer' }] },
   { name: 'maxLength', description: 'At most n characters.', defaultMessage: '%displayName% must be at most %maxLength% characters', settings: [{ key: 'maxLength', kind: 'integer' }] },
   {

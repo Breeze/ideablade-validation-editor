@@ -290,6 +290,17 @@ describe("the app's validators and functions", () => {
     expect(warnings(rules('city', [{ name: 'date', context: { allowString: true } }, 'email', 'range']))).toEqual([]);
   });
 
+  it("warns that 'required' ignores trim with allowEmptyString", () => {
+    const required = (context: Json) => setIn(doc, ['Address', 'properties', 'city', 'validators'], [{ name: 'required', context }]) as MetadataDoc;
+    const warnings = (changed: MetadataDoc) => checkDocument(changed, { customValidators: [], catalog }).filter((i) => i.severity === 'warning' && i.path.includes('trim'));
+    expect(warnings(required({ allowEmptyString: true, trim: true }))).toEqual([
+      expect.objectContaining({ path: ['Address', 'properties', 'city', 'validators', 0, 'context', 'trim'], message: expect.stringContaining('trim has no effect') }),
+    ]);
+    expect(warnings(required({ allowEmptyString: true }))).toEqual([]);
+    expect(warnings(required({ trim: true }))).toEqual([]);
+    expect(errors(required({ allowEmptyString: true }))).toEqual([]);
+  });
+
   it('checks regular expression flags', () => {
     expect(checkRegexFlags('im')).toEqual([]);
     expect(checkRegexFlags('ix').map((p) => p.severity)).toEqual(['error']);

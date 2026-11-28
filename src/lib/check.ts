@@ -246,6 +246,9 @@ export function checkDocument(doc: MetadataDoc, options: CheckOptions): Issue[] 
         }
       }
     }
+    if (name === 'required' && context['allowEmptyString'] === true && context['trim'] === true) {
+      add('warning', [...path, 'context', 'trim'], 'With allowEmptyString every string passes, so trim has no effect.', 'library');
+    }
     if ((name === 'range' || name === 'numericRange' || name === 'dateRange') && context['minValue'] == null && context['maxValue'] == null) {
       add('warning', [...path, 'context'], `'${name}' without minValue or maxValue accepts every value.`, 'library');
     }
