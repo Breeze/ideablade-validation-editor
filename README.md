@@ -2,8 +2,6 @@
 
 A desktop editor for [IdeaBlade Validation](https://github.com/Breeze/ideablade-validation)'s JSON validation metadata (`validation.metadata.json`), so the rules no longer have to be written by hand. It's a first drop: a working prototype, not a finished product.
 
-> **Note:** What you see here was written in a few hours with the help of [Claude Code](https://claude.com/claude-code). It's meant as a developer tool, not a fully fleshed-out production app.
-
 ![Editing a model-level rule](docs/screenshots/model-editor.png)
 
 ## Installing
