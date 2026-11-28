@@ -2,9 +2,14 @@
 :host { display: block; border: 1px solid var(--line-strong); border-left: 3px solid var(--rule-border); border-radius: 4px; background: var(--card-open); }
 :host(.open) { border-left-color: var(--accent); }
 :host(.has-error) { border-left-color: var(--error); }
-.rule-head { display: flex; gap: 6px; align-items: center; padding: 4px 8px; cursor: pointer; flex-wrap: wrap; }
+/* One line, however long the id, condition and settings: the summary takes the room that's left and ends in …, a long
+   id shortens too, and the buttons stay at the right end. */
+.rule-head { display: flex; gap: 6px; align-items: center; padding: 4px 8px; cursor: pointer; min-width: 0; }
+.rule-head > * { flex-shrink: 0; }
+.rule-head > .badge.id { flex-shrink: 1; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
 /* The context settings in one line (the property editor has its own copy of this rule, for its rule count) */
-.summary { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 380px; }
+.summary { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rule-head > .summary { flex: 1 1 0; min-width: 4em; }
 .rule-name { font-family: var(--mono); font-weight: 600; }
 .rule-name.unknown { color: var(--error); text-decoration: wavy underline; }
 .rule-body { padding: 0 10px 10px 24px; }

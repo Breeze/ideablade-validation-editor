@@ -2,11 +2,11 @@
 <div class="rule-head" (click)="open.set(!open())">
   <span class="twisty">{{ open() ? '▾' : '▸' }}</span>
   <span class="rule-name" [class.unknown]="!known()">{{ rule().name || '(no name)' }}</span>
-  @if (rule().id) { <span class="badge">id {{ rule().id }}</span> }
+  @if (rule().id) { <span class="badge id" [title]="rule().id!">id {{ rule().id }}</span> }
   @if (rule().async) { <span class="badge">async</span> }
   @if (rule().condition) { <span class="badge cond" [title]="rule().condition!">if …</span> }
-  <span class="summary">{{ summary() }}</span>
-  <span class="spacer"></span>
+  <!-- Takes the room left over, so the buttons stay at the right end; the whole of it on hover. -->
+  <span class="summary" [title]="summary()">{{ summary() }}</span>
   <!-- stopPropagation: these buttons shouldn't also fold or unfold the card. -->
   <button class="icon" title="Move up" (click)="$event.stopPropagation(); moved.emit(-1)" [disabled]="first()">↑</button>
   <button class="icon" title="Move down" (click)="$event.stopPropagation(); moved.emit(1)" [disabled]="last()">↓</button>
