@@ -204,6 +204,15 @@ export function checkDocument(doc: MetadataDoc, options: CheckOptions): Issue[] 
       } else if (name === 'date' && kind === 'text' && !(isPlainObject(rule) && isPlainObject(rule.context) && rule.context['allowString'])) {
         add('warning', namePath, `'${modelType}.${propertyName}' is text (${type}): 'date' accepts text only with allowString; without it every value fails.`, 'models');
       }
+      // required's string settings: the validator reads them only for a string value (on the client and the server),
+      // so on another kind of property they're ignored rather than failing.
+      if (name === 'required' && kind && kind !== 'text' && isPlainObject(rule) && isPlainObject(rule.context)) {
+        for (const key of ['trim', 'allowEmptyString']) {
+          if (rule.context[key] === true) {
+            add('warning', [...path, 'context', key], `${key} only applies to text, but '${modelType}.${propertyName}' is ${article(kind)} (${type}): it has no effect.`, 'models');
+          }
+        }
+      }
     }
     if (typeof rule === 'string' || !isPlainObject(rule)) return;
     const v = rule as ValidatorObject;
