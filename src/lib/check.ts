@@ -204,6 +204,15 @@ export function checkDocument(doc: MetadataDoc, options: CheckOptions): Issue[] 
       } else if (name === 'date' && kind === 'text' && !(isPlainObject(rule) && isPlainObject(rule.context) && rule.context['allowString'])) {
         add('warning', namePath, `'${modelType}.${propertyName}' is text (${type}): 'date' accepts text only with allowString; without it every value fails.`, 'models');
       }
+      // required's string settings: the validator reads them only for a string value (on the client and the server),
+      // so on another kind of property they're ignored rather than failing.
+      if (name === 'required' && kind && kind !== 'text' && isPlainObject(rule) && isPlainObject(rule.context)) {
+        for (const key of ['trim', 'allowEmptyString']) {
+          if (rule.context[key] === true) {
+            add('warning', [...path, 'context', key], `${key} only applies to text, but '${modelType}.${propertyName}' is ${article(kind)} (${type}): it has no effect.`, 'models');
+          }
+        }
+      }
     }
     if (typeof rule === 'string' || !isPlainObject(rule)) return;
     const v = rule as ValidatorObject;
@@ -245,6 +254,9 @@ export function checkDocument(doc: MetadataDoc, options: CheckOptions): Issue[] 
           add('warning', [...path, 'context', 'flags'], "The pattern is written as /pattern/flags, so its own flags apply and context.flags is ignored.", 'library');
         }
       }
+    }
+    if (name === 'required' && context['allowEmptyString'] === true && context['trim'] === true) {
+      add('warning', [...path, 'context', 'trim'], 'With allowEmptyString every string passes, so trim has no effect.', 'library');
     }
     if ((name === 'range' || name === 'numericRange' || name === 'dateRange') && context['minValue'] == null && context['maxValue'] == null) {
       add('warning', [...path, 'context'], `'${name}' without minValue or maxValue accepts every value.`, 'library');
