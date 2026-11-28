@@ -96,7 +96,7 @@ export interface SavedFolds {
   maps: string[];
 }
 
-/** The two update settings (Settings in the sidebar); both on by default. */
+/** The two update settings (Settings in the sidebar): checking on and pre-releases off by default. */
 export interface UpdateSettings {
   /** Check a few seconds after startup and every 4 hours. Help → Check for Updates… works either way. */
   checkAutomatically: boolean;
@@ -233,8 +233,8 @@ const browserHost: EditorHost = {
   saveFolds: () => {},
   getLayout: async () => undefined,
   saveLayout: () => {},
-  getUpdateSettings: async () => ({ checkAutomatically: true, includePrereleases: true }),
-  setUpdateSettings: async (change) => ({ checkAutomatically: true, includePrereleases: true, ...change }),
+  getUpdateSettings: async () => ({ checkAutomatically: true, includePrereleases: false }),
+  setUpdateSettings: async (change) => ({ checkAutomatically: true, includePrereleases: false, ...change }),
   getUpdateStatus: async () => undefined,
   onUpdateStatus: () => () => {},
   installUpdate: () => {},
