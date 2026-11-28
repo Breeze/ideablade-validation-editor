@@ -72,17 +72,27 @@ describe('the user settings', () => {
     fs.rmSync(file, { force: true });
   });
 
-  it('keeps the update settings next to the rest, both on until turned off', () => {
+  it('keeps the update settings next to the rest: checking on and pre-releases off until changed', () => {
     fs.rmSync(file, { force: true });
-    assert.deepEqual(getUpdateSettings(file), { checkAutomatically: true, includePrereleases: true });
-    save({ x: 10, y: 10, width: 1600, height: 1000, maximized: false });
-    assert.deepEqual(setUpdateSettings(file, { includePrereleases: false }), { checkAutomatically: true, includePrereleases: false });
-    assert.deepEqual(setUpdateSettings(file, { checkAutomatically: false }), { checkAutomatically: false, includePrereleases: false });
-    assert.deepEqual(getUpdateSettings(file), { checkAutomatically: false, includePrereleases: false });
-    assert.equal(loadWindowState(file, screens).width, 1600); // the rest stays
-    setUpdateSettings(file, { checkAutomatically: true });
     assert.deepEqual(getUpdateSettings(file), { checkAutomatically: true, includePrereleases: false });
+    save({ x: 10, y: 10, width: 1600, height: 1000, maximized: false });
+    assert.deepEqual(setUpdateSettings(file, { includePrereleases: true }), { checkAutomatically: true, includePrereleases: true });
+    assert.deepEqual(setUpdateSettings(file, { checkAutomatically: false }), { checkAutomatically: false, includePrereleases: true });
+    assert.deepEqual(getUpdateSettings(file), { checkAutomatically: false, includePrereleases: true });
+    assert.equal(loadWindowState(file, screens).width, 1600); // the rest stays
+    setUpdateSettings(file, { includePrereleases: false });
+    assert.deepEqual(getUpdateSettings(file), { checkAutomatically: false, includePrereleases: false });
     save({ updates: { checkAutomatically: 'no', includePrereleases: 0 } }); // not booleans: the defaults
+    assert.deepEqual(getUpdateSettings(file), { checkAutomatically: true, includePrereleases: false });
+    fs.rmSync(file, { force: true });
+  });
+
+  it('saves only the update setting that changed, so the other keeps following its default', () => {
+    fs.rmSync(file, { force: true });
+    setUpdateSettings(file, { checkAutomatically: false });
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).updates, { checkAutomatically: false });
+    assert.deepEqual(getUpdateSettings(file), { checkAutomatically: false, includePrereleases: false });
+    save({ updates: { checkAutomatically: true, includePrereleases: true } }); // as an alpha saved both
     assert.deepEqual(getUpdateSettings(file), { checkAutomatically: true, includePrereleases: true });
     fs.rmSync(file, { force: true });
   });

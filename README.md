@@ -8,7 +8,7 @@ A desktop editor for [IdeaBlade Validation](https://github.com/Breeze/ideablade-
 
 ## Installing
 
-Download the installer for your system from the newest release on the **[Releases page](https://github.com/Breeze/ideablade-validation-editor/releases)** (the one at the top; they're alphas for now, marked Pre-release). Each release lists its installers with direct links, and what's new.
+Download the installer for your system from the newest release on the **[Releases page](https://github.com/Breeze/ideablade-validation-editor/releases)** (the one marked Latest). Each release lists its installers with direct links, and what's new.
 
 | | Download | Installing |
 |---|---|---|
@@ -26,7 +26,7 @@ From the first release after 0.1.0-alpha.2, the editor looks for a newer release
 - **Windows** and the **AppImage** update themselves: the new version downloads in the background (the status bar shows how far along it is), then the status bar offers *Restart to update*, which asks about unsaved changes first. Without that, it's installed when you quit.
 - **macOS** and the **.deb** can't (the Mac app isn't signed with an Apple certificate, which macOS requires for updates): the status bar says a new version is available, and *Download* opens its release page. Install it over the one you have, as above.
 
-Two settings in the sidebar's Settings decide what happens: *Check for updates automatically* (Help → Check for Updates… works either way) and *Include pre-releases* (alphas, betas and release candidates; while the editor is in alpha, there is nothing else). Both are on by default. Settings and recent projects stay through updates. Versions up to 0.1.0-alpha.2 don't update themselves: install the newer version over them once.
+Two settings in the sidebar's Settings decide what happens: *Check for updates automatically* (Help → Check for Updates… works either way) and *Include pre-releases* (alphas, betas and release candidates, marked Pre-release on the Releases page). Checking is on by default; pre-releases are off since 0.1.0, which is the first full release. An alpha you installed earlier still updates to 0.1.0, and once there it follows the new default unless you changed that setting yourself in an alpha. Settings and recent projects stay through updates. Versions up to 0.1.0-alpha.2 don't update themselves: install the newer version over them once.
 
 ## What it does
 

@@ -145,7 +145,7 @@ export interface PaneLayout {
 // ---------------------------------------------------------------------------------------------------------------
 // Updates (updates/updater.ts)
 
-/** The two update settings (Settings in the sidebar), kept in the settings file; both on by default. */
+/** The two update settings (Settings in the sidebar), kept in the settings file: checking on and pre-releases off by default. */
 export interface UpdateSettings {
   /** Check a few seconds after startup and every 4 hours. Help → Check for Updates… works either way. */
   checkAutomatically: boolean;

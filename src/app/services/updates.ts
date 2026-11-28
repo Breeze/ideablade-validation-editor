@@ -17,7 +17,7 @@ export class Updates {
   /** Where an update stands; undefined until a check has found anything. */
   readonly status = signal<UpdateStatus | undefined>(undefined);
   /** The update settings, at their defaults until the main process's arrive. */
-  readonly settings = signal<UpdateSettings>({ checkAutomatically: true, includePrereleases: true });
+  readonly settings = signal<UpdateSettings>({ checkAutomatically: true, includePrereleases: false });
 
   constructor() {
     host.onUpdateStatus((status) => this.status.set(status));

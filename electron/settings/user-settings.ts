@@ -83,21 +83,30 @@ export function setLayout(file: string, layout: PaneLayout | undefined): void {
   updateSettings(file, (state) => ({ ...state, layout: { sidebar: layout?.sidebar, side: layout?.side } }));
 }
 
-// Updates (updates/updater.ts): whether to check automatically, and whether pre-releases count. Both on by default.
+// Updates (updates/updater.ts): whether to check automatically (on by default), and whether pre-releases count (off by
+// default since 0.1.0; the alphas had it on). Only a setting the user changed is saved, so the defaults can change.
 
-/** The update settings, each at its default (on) unless saved as a boolean. */
-export function getUpdateSettings(file: string): UpdateSettings {
+const UPDATE_DEFAULTS: UpdateSettings = { checkAutomatically: true, includePrereleases: false };
+
+function savedUpdateSettings(file: string): Partial<UpdateSettings> {
   const saved = readSettings(file)['updates'];
   const s = saved && typeof saved === 'object' ? (saved as Record<string, unknown>) : {};
-  const flag = (v: unknown): boolean => (typeof v === 'boolean' ? v : true);
-  return { checkAutomatically: flag(s['checkAutomatically']), includePrereleases: flag(s['includePrereleases']) };
+  const result: Partial<UpdateSettings> = {};
+  if (typeof s['checkAutomatically'] === 'boolean') result.checkAutomatically = s['checkAutomatically'];
+  if (typeof s['includePrereleases'] === 'boolean') result.includePrereleases = s['includePrereleases'];
+  return result;
 }
 
-/** Saves a change to the update settings (either or both); returns them as they are now. */
+/** The update settings, each at its default unless saved as a boolean. */
+export function getUpdateSettings(file: string): UpdateSettings {
+  return { ...UPDATE_DEFAULTS, ...savedUpdateSettings(file) };
+}
+
+/** Saves a change to the update settings (either or both), leaving the other as it was; returns them as they are now. */
 export function setUpdateSettings(file: string, change: Partial<UpdateSettings>): UpdateSettings {
-  const settings = { ...getUpdateSettings(file) };
-  if (typeof change.checkAutomatically === 'boolean') settings.checkAutomatically = change.checkAutomatically;
-  if (typeof change.includePrereleases === 'boolean') settings.includePrereleases = change.includePrereleases;
-  updateSettings(file, (state) => ({ ...state, updates: settings }));
-  return settings;
+  const saved = savedUpdateSettings(file);
+  if (typeof change.checkAutomatically === 'boolean') saved.checkAutomatically = change.checkAutomatically;
+  if (typeof change.includePrereleases === 'boolean') saved.includePrereleases = change.includePrereleases;
+  updateSettings(file, (state) => ({ ...state, updates: saved }));
+  return { ...UPDATE_DEFAULTS, ...saved };
 }
