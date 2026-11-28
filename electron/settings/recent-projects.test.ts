@@ -21,13 +21,17 @@ describe('the recent projects', () => {
     fs.rmSync(file, { force: true });
     assert.equal(getLastProject(file), undefined);
     save({ x: 10, y: 10, width: 1600, height: 1000, maximized: false });
-    const project = path.join(os.tmpdir(), `vews-${process.pid}.ivproj`);
+    // In a folder of its own: in the temp folder itself, project-file.test.ts (running at the same time) would find it
+    // while it looks for a project in the folders above its own.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vews-'));
+    const project = path.join(dir, 'last.ivproj');
     fs.writeFileSync(project, '{}');
     setLastProject(file, project);
     assert.equal(getLastProject(file), project);
     assert.equal(loadWindowState(file, screens).width, 1600); // the bounds are still there
     fs.rmSync(project);
     assert.equal(getLastProject(file), undefined); // moved or deleted: nothing to reopen
+    fs.rmSync(dir, { recursive: true });
     fs.rmSync(file, { force: true });
   });
 
